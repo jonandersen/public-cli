@@ -12,8 +12,11 @@ build:
 test:
 	go test -v -race -cover ./...
 
+GOLANGCI_LINT := $(shell which golangci-lint 2>/dev/null || echo $(shell go env GOPATH)/bin/golangci-lint)
+
 lint:
-	golangci-lint run
+	@test -x $(GOLANGCI_LINT) || (echo "golangci-lint not found. Install with: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" && exit 1)
+	$(GOLANGCI_LINT) run
 
 fmt:
 	goimports -w .
