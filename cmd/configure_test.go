@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jonandersen/pub/internal/config"
 	"github.com/jonandersen/pub/internal/keyring"
 )
 
@@ -48,14 +49,21 @@ func (m *mockPasswordReader) IsTerminal() bool {
 }
 
 func TestConfigureCmd_Success(t *testing.T) {
-	// Create mock server for token exchange
+	// Create mock server for token exchange and account fetching
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/userapiauthservice/personal/access-tokens", r.URL.Path)
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"accessToken": "test-access-token"}`))
+
+		switch r.URL.Path {
+		case "/userapiauthservice/personal/access-tokens":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"accessToken": "test-access-token"}`))
+		case "/userapigateway/trading/account":
+			// Return empty accounts so selection is skipped
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"accounts": []}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
@@ -66,6 +74,7 @@ func TestConfigureCmd_Success(t *testing.T) {
 	// Create mock keyring store and password reader
 	store := keyring.NewMockStore()
 	pwReader := newMockPasswordReader("test-secret-key", true)
+	prompt := newMockPrompt() // Not used since no accounts
 
 	// Create command with test dependencies
 	cmd := newConfigureCmd(configureOptions{
@@ -73,6 +82,7 @@ func TestConfigureCmd_Success(t *testing.T) {
 		baseURL:        server.URL,
 		store:          store,
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	var out bytes.Buffer
@@ -108,12 +118,14 @@ func TestConfigureCmd_WithAccountUUID(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	store := keyring.NewMockStore()
 	pwReader := newMockPasswordReader("test-secret", true)
+	prompt := newMockPrompt() // Not used when account provided via flag
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     configPath,
 		baseURL:        server.URL,
 		store:          store,
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	var out bytes.Buffer
@@ -142,12 +154,14 @@ func TestConfigureCmd_InvalidSecret(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := keyring.NewMockStore()
 	pwReader := newMockPasswordReader("invalid-secret", true)
+	prompt := newMockPrompt()
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     filepath.Join(tmpDir, "config.yaml"),
 		baseURL:        server.URL,
 		store:          store,
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	var out, errOut bytes.Buffer
@@ -163,12 +177,14 @@ func TestConfigureCmd_InvalidSecret(t *testing.T) {
 
 func TestConfigureCmd_EmptySecret(t *testing.T) {
 	pwReader := newMockPasswordReader("", true) // Empty secret
+	prompt := newMockPrompt()
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     "/tmp/config.yaml",
 		baseURL:        "https://api.example.com",
 		store:          keyring.NewMockStore(),
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	var out bytes.Buffer
@@ -183,12 +199,14 @@ func TestConfigureCmd_EmptySecret(t *testing.T) {
 
 func TestConfigureCmd_InvalidAccountUUID(t *testing.T) {
 	pwReader := newMockPasswordReader("test-secret", true)
+	prompt := newMockPrompt()
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     "/tmp/config.yaml",
 		baseURL:        "https://api.example.com",
 		store:          keyring.NewMockStore(),
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	cmd.SetArgs([]string{
@@ -212,12 +230,14 @@ func TestConfigureCmd_KeyringError(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := keyring.NewMockStore().WithSetError(assert.AnError)
 	pwReader := newMockPasswordReader("test-secret", true)
+	prompt := newMockPrompt()
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     filepath.Join(tmpDir, "config.yaml"),
 		baseURL:        server.URL,
 		store:          store,
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	cmd.SetArgs([]string{})
@@ -230,12 +250,14 @@ func TestConfigureCmd_KeyringError(t *testing.T) {
 
 func TestConfigureCmd_NotATerminal(t *testing.T) {
 	pwReader := newMockPasswordReader("test-secret", false) // Not a terminal
+	prompt := newMockPrompt()
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     "/tmp/config.yaml",
 		baseURL:        "https://api.example.com",
 		store:          keyring.NewMockStore(),
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	cmd.SetArgs([]string{})
@@ -248,12 +270,14 @@ func TestConfigureCmd_NotATerminal(t *testing.T) {
 
 func TestConfigureCmd_ReadPasswordError(t *testing.T) {
 	pwReader := newMockPasswordReader("", true).WithError(errors.New("terminal read failed"))
+	prompt := newMockPrompt()
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     "/tmp/config.yaml",
 		baseURL:        "https://api.example.com",
 		store:          keyring.NewMockStore(),
 		passwordReader: pwReader,
+		prompt:         prompt,
 	})
 
 	var out bytes.Buffer
@@ -264,4 +288,314 @@ func TestConfigureCmd_ReadPasswordError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read secret key")
+}
+
+// mockPrompt is a test double for interactive menu prompts.
+type mockPrompt struct {
+	selections []int    // Which option to select for each call
+	callIndex  int      // Current call index
+	lines      []string // Lines to return for ReadLine calls
+	lineIndex  int      // Current line index
+}
+
+func newMockPrompt(selections ...int) *mockPrompt {
+	return &mockPrompt{selections: selections}
+}
+
+func (m *mockPrompt) WithLines(lines ...string) *mockPrompt {
+	m.lines = lines
+	return m
+}
+
+func (m *mockPrompt) SelectOption(options []string) (int, error) {
+	if m.callIndex >= len(m.selections) {
+		return 0, errors.New("no more mock selections")
+	}
+	idx := m.selections[m.callIndex]
+	m.callIndex++
+	return idx, nil
+}
+
+func (m *mockPrompt) ReadLine(prompt string) (string, error) {
+	if m.lineIndex >= len(m.lines) {
+		return "", nil // Default to empty/skip
+	}
+	line := m.lines[m.lineIndex]
+	m.lineIndex++
+	return line, nil
+}
+
+func TestConfigureCmd_AccountSelectionAfterSetup(t *testing.T) {
+	// Mock server that returns accounts after successful token exchange
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/userapiauthservice/personal/access-tokens":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"accessToken": "test-access-token"}`))
+		case "/userapigateway/trading/account":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"accounts": [
+					{"accountId": "acc-111", "accountType": "INDIVIDUAL", "optionsLevel": "LEVEL_2"},
+					{"accountId": "acc-222", "accountType": "IRA", "optionsLevel": "LEVEL_1"}
+				]
+			}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	store := keyring.NewMockStore()
+	pwReader := newMockPasswordReader("test-secret-key", true)
+	prompt := newMockPrompt(0) // Select first account
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        server.URL,
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "Configuration saved")
+
+	// Verify first account was selected and saved
+	cfg, err := config.Load(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, "acc-111", cfg.AccountUUID)
+}
+
+func TestConfigureCmd_SkipAccountSelection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/userapiauthservice/personal/access-tokens":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"accessToken": "test-access-token"}`))
+		case "/userapigateway/trading/account":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"accounts": [
+					{"accountId": "acc-111", "accountType": "INDIVIDUAL"}
+				]
+			}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	store := keyring.NewMockStore()
+	pwReader := newMockPasswordReader("test-secret-key", true)
+	prompt := newMockPrompt(1) // Select "Skip" option (index 1)
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        server.URL,
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+
+	// Verify no account was saved
+	cfg, err := config.Load(configPath)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.AccountUUID)
+}
+
+func TestConfigureCmd_ReconfigureMenu(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"accessToken": "test-access-token"}`))
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Pre-configure: store existing secret
+	store := keyring.NewMockStore()
+	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "existing-secret")
+
+	pwReader := newMockPasswordReader("new-secret", true)
+	prompt := newMockPrompt(1) // Select "Configure new secret key"
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        server.URL,
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "already configured")
+
+	// Verify new secret was stored
+	secret, err := store.Get(keyring.ServiceName, keyring.KeySecretKey)
+	require.NoError(t, err)
+	assert.Equal(t, "new-secret", secret)
+}
+
+func TestConfigureCmd_ClearSecret(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Pre-configure
+	store := keyring.NewMockStore()
+	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "existing-secret")
+
+	pwReader := newMockPasswordReader("", true)
+	prompt := newMockPrompt(3) // Select "Clear secret key"
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        "https://api.example.com",
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "Secret key cleared")
+
+	// Verify secret was removed
+	_, err = store.Get(keyring.ServiceName, keyring.KeySecretKey)
+	assert.ErrorIs(t, err, keyring.ErrNotFound)
+}
+
+func TestConfigureCmd_ViewConfiguration(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Create config file with existing settings
+	cfg := &config.Config{
+		AccountUUID:          "test-account-uuid",
+		APIBaseURL:           "https://api.public.com",
+		TokenValidityMinutes: 60,
+	}
+	require.NoError(t, config.Save(configPath, cfg))
+
+	// Pre-configure
+	store := keyring.NewMockStore()
+	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "existing-secret")
+
+	pwReader := newMockPasswordReader("", true)
+	prompt := newMockPrompt(2) // Select "View current configuration"
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        "https://api.public.com",
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	output := out.String()
+	assert.Contains(t, output, "test-account-uuid")
+	assert.Contains(t, output, "Secret key: Configured")
+}
+
+func TestConfigureCmd_SelectDifferentAccount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/userapiauthservice/personal/access-tokens":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"accessToken": "test-access-token"}`))
+		case "/userapigateway/trading/account":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"accounts": [
+					{"accountId": "acc-111", "accountType": "INDIVIDUAL"},
+					{"accountId": "acc-222", "accountType": "IRA"}
+				]
+			}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Pre-configure with existing account
+	cfg := &config.Config{
+		AccountUUID:          "acc-111",
+		APIBaseURL:           server.URL,
+		TokenValidityMinutes: 60,
+	}
+	require.NoError(t, config.Save(configPath, cfg))
+
+	store := keyring.NewMockStore()
+	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "existing-secret")
+
+	pwReader := newMockPasswordReader("", true)
+	prompt := newMockPrompt(0, 1) // Select "Select different account", then second account
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        server.URL,
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+
+	// Verify second account was saved
+	updatedCfg, err := config.Load(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, "acc-222", updatedCfg.AccountUUID)
 }
