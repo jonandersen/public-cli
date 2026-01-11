@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -41,6 +42,10 @@ func ExchangeToken(ctx context.Context, baseURL, secretKey string) (*Token, erro
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		if len(body) > 0 {
+			return nil, fmt.Errorf("token exchange failed: %d - %s", resp.StatusCode, string(body))
+		}
 		return nil, fmt.Errorf("token exchange failed: %d", resp.StatusCode)
 	}
 
