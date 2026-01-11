@@ -19,7 +19,7 @@ lint:
 	$(GOLANGCI_LINT) run
 
 fmt:
-	goimports -w .
+	go tool goimports -w .
 	gofmt -w .
 
 clean:
