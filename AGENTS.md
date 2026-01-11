@@ -179,8 +179,11 @@ bd sync               # Commit and push changes
 
 1. **Claim**: `bd update <id> --status=in_progress`
 2. **Work**: Implement the task (TDD: tests first, then implementation)
-3. **Ask for Feedback**: Show human the work, get approval before proceeding
-4. **Commit**: `git add <files> && git commit -m "..."`
+3. **Ask for Feedback**: Provide brief context, then wait for approval:
+   - Files changed (paths only)
+   - How to test: `go test -v ./path/... -run TestName` or manual steps
+   - Key behaviors added/changed (2-3 bullets max)
+4. **Commit**: `git add <files> && git commit -m "..."` (only after approval)
 5. **Close**: `bd close <id>` (only after human approves)
 
 ```

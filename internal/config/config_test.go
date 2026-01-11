@@ -219,3 +219,133 @@ func TestConfigPath_WithoutXDG(t *testing.T) {
 		t.Errorf("ConfigPath() = %q, want %q", path, want)
 	}
 }
+
+func TestValidate_ValidConfig(t *testing.T) {
+	cfg := &Config{
+		AccountUUID:          "550e8400-e29b-41d4-a716-446655440000",
+		APIBaseURL:           "https://api.public.com",
+		TokenValidityMinutes: 60,
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidate_DefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() on default config error = %v, want nil", err)
+	}
+}
+
+func TestValidate_EmptyAccountUUID(t *testing.T) {
+	// Empty account UUID is valid (not yet configured)
+	cfg := &Config{
+		AccountUUID:          "",
+		APIBaseURL:           "https://api.public.com",
+		TokenValidityMinutes: 60,
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil for empty AccountUUID", err)
+	}
+}
+
+func TestValidate_InvalidAccountUUID(t *testing.T) {
+	cfg := &Config{
+		AccountUUID:          "not-a-valid-uuid",
+		APIBaseURL:           "https://api.public.com",
+		TokenValidityMinutes: 60,
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() error = nil, want error for invalid AccountUUID")
+	}
+}
+
+func TestValidate_InvalidAPIBaseURL(t *testing.T) {
+	tests := []struct {
+		name   string
+		url    string
+		errMsg string
+	}{
+		{"empty", "", "api_base_url cannot be empty"},
+		{"no scheme", "api.public.com", "api_base_url must be a valid URL"},
+		{"invalid URL", "://invalid", "api_base_url must be a valid URL"},
+		{"non-http scheme", "ftp://api.public.com", "api_base_url must use http or https"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				APIBaseURL:           tt.url,
+				TokenValidityMinutes: 60,
+			}
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Errorf("Validate() error = nil, want error containing %q", tt.errMsg)
+				return
+			}
+			if !contains(err.Error(), tt.errMsg) {
+				t.Errorf("Validate() error = %q, want error containing %q", err.Error(), tt.errMsg)
+			}
+		})
+	}
+}
+
+func TestValidate_InvalidTokenValidityMinutes(t *testing.T) {
+	tests := []struct {
+		name    string
+		minutes int
+	}{
+		{"zero", 0},
+		{"negative", -1},
+		{"very negative", -100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				APIBaseURL:           "https://api.public.com",
+				TokenValidityMinutes: tt.minutes,
+			}
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Errorf("Validate() error = nil, want error for TokenValidityMinutes=%d", tt.minutes)
+			}
+		})
+	}
+}
+
+func TestValidate_MultipleErrors(t *testing.T) {
+	cfg := &Config{
+		AccountUUID:          "invalid-uuid",
+		APIBaseURL:           "",
+		TokenValidityMinutes: -1,
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() error = nil, want error for multiple invalid fields")
+	}
+}
+
+// helper function
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && searchString(s, substr)))
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
