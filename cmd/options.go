@@ -67,6 +67,27 @@ type OptionQuote struct {
 	OpenInterest int              `json:"openInterest"`
 }
 
+// GreeksResponse represents the API response for option greeks.
+type GreeksResponse struct {
+	Greeks []OptionGreeks `json:"greeks"`
+}
+
+// OptionGreeks represents greeks for a single option.
+type OptionGreeks struct {
+	Symbol string      `json:"symbol"`
+	Greeks GreeksData  `json:"greeks"`
+}
+
+// GreeksData contains the actual greek values.
+type GreeksData struct {
+	Delta             string `json:"delta"`
+	Gamma             string `json:"gamma"`
+	Theta             string `json:"theta"`
+	Vega              string `json:"vega"`
+	Rho               string `json:"rho"`
+	ImpliedVolatility string `json:"impliedVolatility"`
+}
+
 // newOptionsExpirationsCmd creates the options expirations command with the given options.
 func newOptionsExpirationsCmd(opts optionsOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -273,6 +294,70 @@ func parseStrikeFromSymbol(symbol string) string {
 	return fmt.Sprintf("%d.%02d", dollars, cents)
 }
 
+func runOptionsGreeks(cmd *cobra.Command, opts optionsOptions, symbols []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Build query parameters
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/option-details/%s/greeks", opts.accountID)
+
+	// Add symbols as query params
+	query := "?"
+	for i, sym := range symbols {
+		if i > 0 {
+			query += "&"
+		}
+		query += "osiSymbols=" + strings.ToUpper(sym)
+	}
+
+	resp, err := client.Get(ctx, path+query)
+	if err != nil {
+		return fmt.Errorf("failed to fetch greeks: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var greeksResp GreeksResponse
+	if err := json.NewDecoder(resp.Body).Decode(&greeksResp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(greeksResp.Greeks) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No greeks data available")
+		return nil
+	}
+
+	// Format output
+	if opts.jsonMode {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(greeksResp)
+	}
+
+	// Table output
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%-22s  %8s  %8s  %8s  %8s  %8s  %8s\n",
+		"SYMBOL", "DELTA", "GAMMA", "THETA", "VEGA", "RHO", "IV")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", strings.Repeat("-", 85))
+
+	for _, og := range greeksResp.Greeks {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-22s  %8s  %8s  %8s  %8s  %8s  %8s\n",
+			og.Symbol,
+			og.Greeks.Delta,
+			og.Greeks.Gamma,
+			og.Greeks.Theta,
+			og.Greeks.Vega,
+			og.Greeks.Rho,
+			og.Greeks.ImpliedVolatility)
+	}
+
+	return nil
+}
+
 func init() {
 	var opts optionsOptions
 	var accountID string
@@ -379,7 +464,57 @@ Examples:
 	chainCmd.Flags().StringVarP(&chainExpiration, "expiration", "e", "", "Expiration date (YYYY-MM-DD)")
 	chainCmd.SilenceUsage = true
 
+	var greeksAccountID string
+	greeksCmd := &cobra.Command{
+		Use:   "greeks SYMBOL [SYMBOL...]",
+		Short: "Display option greeks",
+		Long: `Display greeks (delta, gamma, theta, vega, rho, IV) for option symbols.
+
+Symbols should be in OSI format (e.g., AAPL250117C00175000).
+
+Examples:
+  pub options greeks AAPL250117C00175000                    # Single option
+  pub options greeks AAPL250117C00175000 AAPL250117P00175000  # Multiple options
+  pub options greeks AAPL250117C00175000 --json             # Output as JSON`,
+		Args: cobra.MinimumNArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// Load config
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			// Get auth token
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := getAuthToken(store, cfg.APIBaseURL)
+			if err != nil {
+				return err
+			}
+
+			// Use flag value or default from config
+			if greeksAccountID == "" {
+				greeksAccountID = cfg.AccountUUID
+			}
+
+			opts.baseURL = cfg.APIBaseURL
+			opts.authToken = token
+			opts.accountID = greeksAccountID
+			opts.jsonMode = GetJSONMode()
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.accountID == "" {
+				return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+			}
+			return runOptionsGreeks(cmd, opts, args)
+		},
+	}
+
+	greeksCmd.Flags().StringVarP(&greeksAccountID, "account", "a", "", "Account ID (uses default if not specified)")
+	greeksCmd.SilenceUsage = true
+
 	optionsCmd.AddCommand(expirationsCmd)
 	optionsCmd.AddCommand(chainCmd)
+	optionsCmd.AddCommand(greeksCmd)
 	rootCmd.AddCommand(optionsCmd)
 }
