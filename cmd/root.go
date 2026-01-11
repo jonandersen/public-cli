@@ -6,10 +6,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "pub",
-	Short: "Public.com Trading CLI",
-	Long:  `A CLI for trading stocks, ETFs, options, and crypto via Public.com's API.`,
+	Use:     "pub",
+	Short:   "Public.com Trading CLI",
+	Long:    `A CLI for trading stocks, ETFs, options, and crypto via Public.com's API.`,
+	Version: Version,
 }
 
 func Execute() {

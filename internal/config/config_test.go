@@ -165,11 +165,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestConfigDir_WithXDG(t *testing.T) {
-	// Save and restore original env
-	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer os.Setenv("XDG_CONFIG_HOME", orig)
-
-	os.Setenv("XDG_CONFIG_HOME", "/custom/config")
+	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
 	dir := ConfigDir()
 
 	want := "/custom/config/pub"
@@ -179,11 +175,7 @@ func TestConfigDir_WithXDG(t *testing.T) {
 }
 
 func TestConfigDir_WithoutXDG(t *testing.T) {
-	// Save and restore original env
-	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer os.Setenv("XDG_CONFIG_HOME", orig)
-
-	os.Unsetenv("XDG_CONFIG_HOME")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	dir := ConfigDir()
 
 	home, _ := os.UserHomeDir()
@@ -194,10 +186,7 @@ func TestConfigDir_WithoutXDG(t *testing.T) {
 }
 
 func TestConfigPath_WithXDG(t *testing.T) {
-	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer os.Setenv("XDG_CONFIG_HOME", orig)
-
-	os.Setenv("XDG_CONFIG_HOME", "/custom/config")
+	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
 	path := ConfigPath()
 
 	want := "/custom/config/pub/config.yaml"
@@ -207,10 +196,7 @@ func TestConfigPath_WithXDG(t *testing.T) {
 }
 
 func TestConfigPath_WithoutXDG(t *testing.T) {
-	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer os.Setenv("XDG_CONFIG_HOME", orig)
-
-	os.Unsetenv("XDG_CONFIG_HOME")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	path := ConfigPath()
 
 	home, _ := os.UserHomeDir()

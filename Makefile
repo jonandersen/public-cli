@@ -2,7 +2,7 @@
 
 BINARY := pub
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -ldflags "-X main.version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/jonandersen/pub/cmd.Version=$(VERSION)"
 
 all: fmt lint test build
 
