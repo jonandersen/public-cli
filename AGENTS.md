@@ -173,13 +173,30 @@ bd close <id1> <id2>  # Close multiple issues at once
 bd sync               # Commit and push changes
 ```
 
-### Workflow Pattern
+### Workflow Pattern (Per Task)
 
-1. **Start**: Run `bd ready` to find actionable work
-2. **Claim**: Use `bd update <id> --status=in_progress`
-3. **Work**: Implement the task
-4. **Complete**: Use `bd close <id>`
-5. **Sync**: Always run `bd sync` at session end
+**IMPORTANT: Follow this workflow for EVERY task. Do NOT close tasks without human approval.**
+
+1. **Claim**: `bd update <id> --status=in_progress`
+2. **Work**: Implement the task (TDD: tests first, then implementation)
+3. **Ask for Feedback**: Show human the work, get approval before proceeding
+4. **Commit**: `git add <files> && git commit -m "..."`
+5. **Close**: `bd close <id>` (only after human approves)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  CLAIM → WORK → ASK FEEDBACK → COMMIT → CLOSE          │
+│                      ↑                                  │
+│                      │                                  │
+│            Human approves here                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Why this matters:**
+- Human review catches issues early
+- Commits are atomic and reviewable
+- Tasks stay in_progress until truly done
+- No orphaned uncommitted work
 
 ### Key Concepts
 
