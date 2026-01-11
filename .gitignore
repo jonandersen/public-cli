@@ -32,3 +32,6 @@ pub
 # .idea/
 # .vscode/
 plan.md
+
+# bv (beads viewer) local config and caches
+.bv/
