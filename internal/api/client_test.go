@@ -155,3 +155,82 @@ func TestClient_BaseURLTrailingSlash(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
+func TestClient_Post_NetworkError(t *testing.T) {
+	client := NewClient("http://localhost:99999", "test-token")
+
+	_, err := client.Post(context.Background(), "/test", strings.NewReader("{}"))
+
+	assert.Error(t, err)
+}
+
+func TestClient_Delete_NetworkError(t *testing.T) {
+	client := NewClient("http://localhost:99999", "test-token")
+
+	_, err := client.Delete(context.Background(), "/test")
+
+	assert.Error(t, err)
+}
+
+func TestClient_Post_ContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-token")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := client.Post(ctx, "/test", strings.NewReader("{}"))
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "context canceled")
+}
+
+func TestClient_Delete_ContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-token")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := client.Delete(ctx, "/test")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "context canceled")
+}
+
+func TestClient_Get_ConnectionRefused(t *testing.T) {
+	// Use a server that's immediately closed to simulate connection refused
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	serverURL := server.URL
+	server.Close()
+
+	client := NewClient(serverURL, "test-token")
+	_, err := client.Get(context.Background(), "/test")
+
+	assert.Error(t, err)
+}
+
+func TestClient_Get_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond) // Sleep longer than timeout
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-token")
+	client.HTTPClient.Timeout = 50 * time.Millisecond // Very short timeout
+
+	_, err := client.Get(context.Background(), "/test")
+
+	assert.Error(t, err)
+}

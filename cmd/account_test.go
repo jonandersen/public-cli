@@ -360,3 +360,365 @@ func TestGetAuthToken_KeyringError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to retrieve secret")
 }
+
+func TestGetAuthToken_Success(t *testing.T) {
+	// Mock server returns a valid token
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/userapiauthservice/personal/access-tokens", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"accessToken": "test-access-token-123",
+		})
+	}))
+	defer server.Close()
+
+	store := keyring.NewMockStore().WithData(keyring.ServiceName, keyring.KeySecretKey, "test-secret-key")
+
+	token, err := getAuthToken(store, server.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "test-access-token-123", token)
+}
+
+func TestGetAuthToken_ExchangeError(t *testing.T) {
+	// Mock server returns an error
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error": "invalid secret"}`))
+	}))
+	defer server.Close()
+
+	store := keyring.NewMockStore().WithData(keyring.ServiceName, keyring.KeySecretKey, "bad-secret")
+
+	_, err := getAuthToken(store, server.URL)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to authenticate")
+}
+
+func TestFormatGainLoss(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "positive value",
+			input:    "250.00",
+			expected: "+$250.00",
+		},
+		{
+			name:     "negative value",
+			input:    "-50.00",
+			expected: "-$50.00",
+		},
+		{
+			name:     "zero string",
+			input:    "0",
+			expected: "$0.00",
+		},
+		{
+			name:     "zero decimal",
+			input:    "0.00",
+			expected: "$0.00",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "$0.00",
+		},
+		{
+			name:     "large positive",
+			input:    "12345.67",
+			expected: "+$12345.67",
+		},
+		{
+			name:     "large negative",
+			input:    "-98765.43",
+			expected: "-$98765.43",
+		},
+		{
+			name:     "small positive",
+			input:    "0.01",
+			expected: "+$0.01",
+		},
+		{
+			name:     "small negative",
+			input:    "-0.01",
+			expected: "-$0.01",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatGainLoss(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAccountPortfolioCmd_JSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId":   "abc123",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"cashOnlyBuyingPower": "10000.00",
+				"buyingPower":         "10000.00",
+				"optionsBuyingPower":  "5000.00",
+			},
+			"equity": []map[string]any{
+				{"type": "CASH", "value": "5000.00", "percentageOfPortfolio": "50.00"},
+			},
+			"positions": []map[string]any{
+				{
+					"instrument":   map[string]any{"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+					"quantity":     "10",
+					"currentValue": "1750.00",
+					"lastPrice": map[string]any{
+						"lastPrice": "175.00",
+						"timestamp": "2024-01-15T10:30:00Z",
+					},
+					"positionDailyGain": map[string]any{
+						"gainValue":      "50.00",
+						"gainPercentage": "2.94",
+					},
+					"costBasis": map[string]any{
+						"totalCost":      "1500.00",
+						"gainValue":      "250.00",
+						"gainPercentage": "16.67",
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify JSON output is parseable
+	var result map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	// Verify structure
+	assert.Contains(t, result, "buyingPower")
+	assert.Contains(t, result, "equity")
+	assert.Contains(t, result, "positions")
+
+	positions := result["positions"].([]any)
+	assert.Len(t, positions, 1)
+}
+
+func TestAccountPortfolioCmd_NoPositionsJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId":   "abc123",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"buyingPower":        "10000.00",
+				"optionsBuyingPower": "5000.00",
+			},
+			"equity":    []map[string]any{},
+			"positions": []map[string]any{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify JSON output with empty positions
+	var result map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	positions := result["positions"].([]any)
+	assert.Empty(t, positions)
+}
+
+func TestAccountPortfolioCmd_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error": "account not found"}`))
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "nonexistent"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+}
+
+func TestAccountPortfolioCmd_MalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`not valid json`))
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode response")
+}
+
+func TestAccountPortfolioCmd_EmptyCostBasis(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId":   "abc123",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"buyingPower":        "10000.00",
+				"optionsBuyingPower": "5000.00",
+			},
+			"equity": []map[string]any{},
+			"positions": []map[string]any{
+				{
+					"instrument":   map[string]any{"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+					"quantity":     "10",
+					"currentValue": "1750.00",
+					"lastPrice": map[string]any{
+						"lastPrice": "175.00",
+					},
+					"positionDailyGain": map[string]any{
+						"gainValue":      "50.00",
+						"gainPercentage": "2.94",
+					},
+					// costBasis with empty values - should default to 0
+					"costBasis": map[string]any{
+						"gainValue":      "",
+						"gainPercentage": "",
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "AAPL")
+	// Empty costBasis should show $0.00 for total G/L
+	assert.Contains(t, output, "$0.00")
+}
+
+func TestAccountListCmd_MalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{invalid json`))
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode response")
+}
+
+func TestAccountListCmd_NetworkError(t *testing.T) {
+	// Use a closed server to simulate connection refused
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	serverURL := server.URL
+	server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   serverURL,
+		authToken: "test-token",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to fetch accounts")
+}
+
+func TestAccountPortfolioCmd_NetworkError(t *testing.T) {
+	// Use a closed server to simulate connection refused
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	serverURL := server.URL
+	server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   serverURL,
+		authToken: "test-token",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to fetch portfolio")
+}
