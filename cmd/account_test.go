@@ -156,20 +156,35 @@ func TestAccountPortfolioCmd_Success(t *testing.T) {
 				"optionsBuyingPower":  "5000.00",
 			},
 			"equity": []map[string]any{
-				{"type": "CASH", "value": "5000.00", "portfolioPercentage": "50.00"},
-				{"type": "EQUITY", "value": "5000.00", "portfolioPercentage": "50.00"},
+				{"type": "CASH", "value": "5000.00", "percentageOfPortfolio": "50.00"},
+				{"type": "STOCK", "value": "5000.00", "percentageOfPortfolio": "50.00"},
 			},
 			"positions": []map[string]any{
 				{
-					"instrument":            map[string]any{"symbol": "AAPL", "type": "EQUITY"},
-					"quantity":              "10",
-					"currentValue":          "1750.00",
-					"lastPrice":             "175.00",
-					"unrealizedGain":        "250.00",
-					"unrealizedGainPercent": "16.67",
-					"dailyGain":             "50.00",
-					"dailyGainPercent":      "2.94",
-					"costBasis":             "1500.00",
+					"instrument":   map[string]any{"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+					"quantity":     "10",
+					"currentValue": "1750.00",
+					"lastPrice": map[string]any{
+						"lastPrice": "175.00",
+						"timestamp": "2024-01-15T10:30:00Z",
+					},
+					"instrumentGain": map[string]any{
+						"gainValue":      "250.00",
+						"gainPercentage": "16.67",
+						"timestamp":      "2024-01-15T10:30:00Z",
+					},
+					"positionDailyGain": map[string]any{
+						"gainValue":      "50.00",
+						"gainPercentage": "2.94",
+						"timestamp":      "2024-01-15T10:30:00Z",
+					},
+					"costBasis": map[string]any{
+						"totalCost":      "1500.00",
+						"unitCost":       "150.00",
+						"gainValue":      "250.00",
+						"gainPercentage": "16.67",
+						"lastUpdate":     "2024-01-15T10:30:00Z",
+					},
 				},
 			},
 		}
@@ -191,6 +206,11 @@ func TestAccountPortfolioCmd_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	output := out.String()
+	// Check equity summary is displayed
+	assert.Contains(t, output, "CASH")
+	assert.Contains(t, output, "5000.00")
+	assert.Contains(t, output, "50.00%")
+	// Check positions are displayed
 	assert.Contains(t, output, "AAPL")
 	assert.Contains(t, output, "10")
 	assert.Contains(t, output, "1750.00")

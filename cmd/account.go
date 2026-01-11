@@ -55,28 +55,50 @@ type BuyingPower struct {
 
 // Equity represents an equity breakdown item.
 type Equity struct {
-	Type                string `json:"type"`
-	Value               string `json:"value"`
-	PortfolioPercentage string `json:"portfolioPercentage"`
+	Type                  string `json:"type"`
+	Value                 string `json:"value"`
+	PercentageOfPortfolio string `json:"percentageOfPortfolio"`
 }
 
 // Position represents a portfolio position.
 type Position struct {
-	Instrument            Instrument `json:"instrument"`
-	Quantity              string     `json:"quantity"`
-	CurrentValue          string     `json:"currentValue"`
-	LastPrice             string     `json:"lastPrice"`
-	UnrealizedGain        string     `json:"unrealizedGain"`
-	UnrealizedGainPercent string     `json:"unrealizedGainPercent"`
-	DailyGain             string     `json:"dailyGain"`
-	DailyGainPercent      string     `json:"dailyGainPercent"`
-	CostBasis             string     `json:"costBasis"`
+	Instrument         Instrument `json:"instrument"`
+	Quantity           string     `json:"quantity"`
+	CurrentValue       string     `json:"currentValue"`
+	PercentOfPortfolio string     `json:"percentOfPortfolio"`
+	LastPrice          Price      `json:"lastPrice"`
+	InstrumentGain     Gain       `json:"instrumentGain"`
+	PositionDailyGain  Gain       `json:"positionDailyGain"`
+	CostBasis          CostBasis  `json:"costBasis"`
 }
 
 // Instrument represents a trading instrument.
 type Instrument struct {
 	Symbol string `json:"symbol"`
+	Name   string `json:"name"`
 	Type   string `json:"type"`
+}
+
+// Price represents a price with timestamp.
+type Price struct {
+	LastPrice string `json:"lastPrice"`
+	Timestamp string `json:"timestamp"`
+}
+
+// Gain represents a gain/loss value with percentage.
+type Gain struct {
+	GainValue      string `json:"gainValue"`
+	GainPercentage string `json:"gainPercentage"`
+	Timestamp      string `json:"timestamp"`
+}
+
+// CostBasis represents cost basis information.
+type CostBasis struct {
+	TotalCost      string `json:"totalCost"`
+	UnitCost       string `json:"unitCost"`
+	GainValue      string `json:"gainValue"`
+	GainPercentage string `json:"gainPercentage"`
+	LastUpdate     string `json:"lastUpdate"`
 }
 
 // newAccountCmd creates the account command with the given options.
@@ -199,12 +221,22 @@ func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) err
 	if !opts.jsonMode {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Buying Power: $%s\n", portfolio.BuyingPower.BuyingPower)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Options Buying Power: $%s\n\n", portfolio.BuyingPower.OptionsBuyingPower)
+
+		// Print equity summary if available
+		if len(portfolio.Equity) > 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Account Summary:")
+			for _, eq := range portfolio.Equity {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: $%s (%s%%)\n", eq.Type, eq.Value, eq.PercentageOfPortfolio)
+			}
+			_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		}
 	}
 
 	if len(portfolio.Positions) == 0 {
 		if opts.jsonMode {
 			return formatter.Print(map[string]any{
 				"buyingPower": portfolio.BuyingPower,
+				"equity":      portfolio.Equity,
 				"positions":   []any{},
 			})
 		}
@@ -215,6 +247,7 @@ func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) err
 	if opts.jsonMode {
 		return formatter.Print(map[string]any{
 			"buyingPower": portfolio.BuyingPower,
+			"equity":      portfolio.Equity,
 			"positions":   portfolio.Positions,
 		})
 	}
@@ -227,10 +260,10 @@ func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) err
 			pos.Instrument.Symbol,
 			pos.Quantity,
 			"$" + pos.CurrentValue,
-			formatGainLoss(pos.DailyGain),
-			pos.DailyGainPercent + "%",
-			formatGainLoss(pos.UnrealizedGain),
-			pos.UnrealizedGainPercent + "%",
+			formatGainLoss(pos.PositionDailyGain.GainValue),
+			pos.PositionDailyGain.GainPercentage + "%",
+			formatGainLoss(pos.InstrumentGain.GainValue),
+			pos.InstrumentGain.GainPercentage + "%",
 		})
 	}
 
