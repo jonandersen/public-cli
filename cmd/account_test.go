@@ -258,6 +258,7 @@ func TestAccountPortfolioCmd_RequiresAccount(t *testing.T) {
 	cmd := newAccountCmd(accountOptions{
 		baseURL:   "http://localhost",
 		authToken: "test-token",
+		// No defaultAccountID set
 	})
 
 	var out bytes.Buffer
@@ -267,7 +268,77 @@ func TestAccountPortfolioCmd_RequiresAccount(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "account")
+	assert.Contains(t, err.Error(), "account ID is required")
+	assert.Contains(t, err.Error(), "pub configure")
+}
+
+func TestAccountPortfolioCmd_UsesDefaultAccount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify it uses the default account ID
+		assert.Equal(t, "/userapigateway/trading/default-account-123/portfolio/v2", r.URL.Path)
+
+		resp := map[string]any{
+			"accountId":   "default-account-123",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"buyingPower":        "10000.00",
+				"optionsBuyingPower": "5000.00",
+			},
+			"equity":    []map[string]any{},
+			"positions": []map[string]any{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:          server.URL,
+		authToken:        "test-token",
+		defaultAccountID: "default-account-123",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio"}) // No --account flag
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "Buying Power")
+}
+
+func TestAccountPortfolioCmd_FlagOverridesDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify it uses the flag value, not the default
+		assert.Equal(t, "/userapigateway/trading/flag-account-456/portfolio/v2", r.URL.Path)
+
+		resp := map[string]any{
+			"accountId":   "flag-account-456",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"buyingPower":        "10000.00",
+				"optionsBuyingPower": "5000.00",
+			},
+			"equity":    []map[string]any{},
+			"positions": []map[string]any{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:          server.URL,
+		authToken:        "test-token",
+		defaultAccountID: "default-account-123", // Has a default
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "flag-account-456"}) // Override with flag
+
+	err := cmd.Execute()
+	require.NoError(t, err)
 }
 
 func TestGetAuthToken_NotConfigured(t *testing.T) {

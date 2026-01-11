@@ -18,9 +18,10 @@ import (
 
 // accountOptions holds dependencies for the account command.
 type accountOptions struct {
-	baseURL   string
-	authToken string
-	jsonMode  bool
+	baseURL          string
+	authToken        string
+	jsonMode         bool
+	defaultAccountID string
 }
 
 // Account represents a Public.com account.
@@ -169,25 +170,31 @@ func runAccountList(cmd *cobra.Command, opts accountOptions) error {
 }
 
 func newPortfolioCmd(opts accountOptions) *cobra.Command {
-	var accountID string
+	var flagAccountID string
 
 	cmd := &cobra.Command{
 		Use:   "portfolio",
 		Short: "View portfolio positions and balances",
 		Long: `View your portfolio including buying power, positions, and daily gains.
 
+Uses the default account from config if --account is not specified.
+
 Examples:
-  pub account portfolio --account YOUR_ACCOUNT_ID
-  pub account portfolio -a YOUR_ACCOUNT_ID`,
+  pub account portfolio                          # Use default account
+  pub account portfolio --account YOUR_ACCOUNT_ID`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			accountID := flagAccountID
 			if accountID == "" {
-				return fmt.Errorf("account ID is required (use --account flag)")
+				accountID = opts.defaultAccountID
+			}
+			if accountID == "" {
+				return fmt.Errorf("account ID is required (use --account flag or set default with 'pub configure')")
 			}
 			return runPortfolio(cmd, opts, accountID)
 		},
 	}
 
-	cmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (required)")
+	cmd.Flags().StringVarP(&flagAccountID, "account", "a", "", "Account ID (uses default if configured)")
 	cmd.SilenceUsage = true
 
 	return cmd
@@ -331,6 +338,7 @@ Examples:
 			opts.baseURL = cfg.APIBaseURL
 			opts.authToken = token
 			opts.jsonMode = GetJSONMode()
+			opts.defaultAccountID = cfg.AccountUUID
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -347,17 +355,23 @@ Examples:
 		Short: "View portfolio positions and balances",
 		Long: `View your portfolio including buying power, positions, and daily gains.
 
+Uses the default account from config if --account is not specified.
+
 Examples:
-  pub account portfolio --account YOUR_ACCOUNT_ID
-  pub account portfolio -a YOUR_ACCOUNT_ID`,
+  pub account portfolio                          # Use default account
+  pub account portfolio --account YOUR_ACCOUNT_ID`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if portfolioAccountID == "" {
-				return fmt.Errorf("account ID is required (use --account flag)")
+			accountID := portfolioAccountID
+			if accountID == "" {
+				accountID = opts.defaultAccountID
 			}
-			return runPortfolio(cmd, opts, portfolioAccountID)
+			if accountID == "" {
+				return fmt.Errorf("account ID is required (use --account flag or set default with 'pub configure')")
+			}
+			return runPortfolio(cmd, opts, accountID)
 		},
 	}
-	portfolioCmd.Flags().StringVarP(&portfolioAccountID, "account", "a", "", "Account ID (required)")
+	portfolioCmd.Flags().StringVarP(&portfolioAccountID, "account", "a", "", "Account ID (uses default if configured)")
 	portfolioCmd.SilenceUsage = true
 
 	accountCmd.AddCommand(portfolioCmd)
