@@ -51,11 +51,11 @@ func TestConfigureCmd_Success(t *testing.T) {
 	// Create mock server for token exchange
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/userapiauthservice/personal/access-tokens", r.URL.Path)
-		assert.Equal(t, "Bearer test-secret-key", r.Header.Get("Authorization"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"access_token": "test-access-token", "expires_in": 3600}`))
+		_, _ = w.Write([]byte(`{"accessToken": "test-access-token"}`))
 	}))
 	defer server.Close()
 
@@ -100,7 +100,7 @@ func TestConfigureCmd_WithAccountUUID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"access_token": "test-token", "expires_in": 3600}`))
+		_, _ = w.Write([]byte(`{"accessToken": "test-token"}`))
 	}))
 	defer server.Close()
 
@@ -205,7 +205,7 @@ func TestConfigureCmd_KeyringError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"access_token": "test-token", "expires_in": 3600}`))
+		_, _ = w.Write([]byte(`{"accessToken": "test-token"}`))
 	}))
 	defer server.Close()
 

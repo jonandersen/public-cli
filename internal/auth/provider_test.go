@@ -52,11 +52,15 @@ func TestGetToken_RefreshExpired(t *testing.T) {
 
 	// Server returns new token
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer secret-key", r.Header.Get("Authorization"))
+		// Verify request body contains secret
+		var reqBody TokenRequest
+		err := json.NewDecoder(r.Body).Decode(&reqBody)
+		require.NoError(t, err)
+		assert.Equal(t, "secret-key", reqBody.Secret)
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(TokenResponse{
 			AccessToken: "fresh-token",
-			ExpiresIn:   3600,
 		})
 	}))
 	defer server.Close()
@@ -82,7 +86,6 @@ func TestGetToken_NoCacheFile(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(TokenResponse{
 			AccessToken: "new-token",
-			ExpiresIn:   3600,
 		})
 	}))
 	defer server.Close()
@@ -128,7 +131,6 @@ func TestGetToken_CorruptedCache(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(TokenResponse{
 			AccessToken: "recovered-token",
-			ExpiresIn:   3600,
 		})
 	}))
 	defer server.Close()
@@ -145,7 +147,7 @@ func TestGetToken_ContextCancellation(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
-		_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: "token", ExpiresIn: 3600})
+		_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: "token"})
 	}))
 	defer server.Close()
 

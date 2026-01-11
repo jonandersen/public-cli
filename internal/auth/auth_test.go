@@ -19,16 +19,19 @@ func TestExchangeToken_Success(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/userapiauthservice/personal/access-tokens", r.URL.Path)
 
-		// Verify authorization header
-		assert.Equal(t, "Bearer test-secret-key", r.Header.Get("Authorization"))
-
 		// Verify content type
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		// Verify request body contains secret and validity
+		var reqBody TokenRequest
+		err := json.NewDecoder(r.Body).Decode(&reqBody)
+		require.NoError(t, err)
+		assert.Equal(t, "test-secret-key", reqBody.Secret)
+		assert.Equal(t, DefaultTokenValidityMinutes, reqBody.ValidityInMinutes)
 
 		// Return successful response
 		resp := TokenResponse{
 			AccessToken: "access-token-123",
-			ExpiresIn:   3600,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -41,9 +44,39 @@ func TestExchangeToken_Success(t *testing.T) {
 	// Verify
 	require.NoError(t, err)
 	assert.Equal(t, "access-token-123", token.AccessToken)
-	// ExpiresAt should be roughly now + 3600 seconds
-	expectedExpiry := time.Now().Unix() + 3600
+	// ExpiresAt should be roughly now + DefaultTokenValidityMinutes*60 seconds
+	expectedExpiry := time.Now().Unix() + int64(DefaultTokenValidityMinutes)*60
 	assert.InDelta(t, expectedExpiry, token.ExpiresAt, 5) // Allow 5 second delta
+}
+
+func TestExchangeTokenWithValidity_CustomValidity(t *testing.T) {
+	// Setup mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request body contains custom validity
+		var reqBody TokenRequest
+		err := json.NewDecoder(r.Body).Decode(&reqBody)
+		require.NoError(t, err)
+		assert.Equal(t, "test-secret-key", reqBody.Secret)
+		assert.Equal(t, 120, reqBody.ValidityInMinutes)
+
+		// Return successful response
+		resp := TokenResponse{
+			AccessToken: "access-token-123",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// Execute with custom validity
+	token, err := ExchangeTokenWithValidity(context.Background(), server.URL, "test-secret-key", 120)
+
+	// Verify
+	require.NoError(t, err)
+	assert.Equal(t, "access-token-123", token.AccessToken)
+	// ExpiresAt should be roughly now + 120*60 seconds
+	expectedExpiry := time.Now().Unix() + 120*60
+	assert.InDelta(t, expectedExpiry, token.ExpiresAt, 5)
 }
 
 func TestExchangeToken_HTTPError(t *testing.T) {
@@ -116,7 +149,7 @@ func TestExchangeToken_ContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Simulate slow response
 		time.Sleep(100 * time.Millisecond)
-		_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: "token", ExpiresIn: 3600})
+		_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: "token"})
 	}))
 	defer server.Close()
 
@@ -132,7 +165,7 @@ func TestExchangeToken_ContextCancellation(t *testing.T) {
 func TestExchangeToken_EmptyAccessToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: "", ExpiresIn: 3600})
+		_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: ""})
 	}))
 	defer server.Close()
 
