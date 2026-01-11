@@ -263,14 +263,21 @@ func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) err
 	headers := []string{"Symbol", "Qty", "Value", "Daily G/L", "Daily %", "Total G/L", "Total %"}
 	rows := make([][]string, 0, len(portfolio.Positions))
 	for _, pos := range portfolio.Positions {
+		// Use costBasis for total gain (more accurate than instrumentGain)
+		totalGainValue := pos.CostBasis.GainValue
+		totalGainPct := pos.CostBasis.GainPercentage
+		if totalGainValue == "" {
+			totalGainValue = "0"
+			totalGainPct = "0"
+		}
 		rows = append(rows, []string{
 			pos.Instrument.Symbol,
 			pos.Quantity,
 			"$" + pos.CurrentValue,
 			formatGainLoss(pos.PositionDailyGain.GainValue),
 			pos.PositionDailyGain.GainPercentage + "%",
-			formatGainLoss(pos.InstrumentGain.GainValue),
-			pos.InstrumentGain.GainPercentage + "%",
+			formatGainLoss(totalGainValue),
+			totalGainPct + "%",
 		})
 	}
 
