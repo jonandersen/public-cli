@@ -41,6 +41,32 @@ type OptionExpirationsResponse struct {
 	Expirations []string `json:"expirations"`
 }
 
+// OptionChainRequest represents a request for an option chain.
+type OptionChainRequest struct {
+	Instrument     OptionInstrument `json:"instrument"`
+	ExpirationDate string           `json:"expirationDate"`
+}
+
+// OptionChainResponse represents the API response for an option chain.
+type OptionChainResponse struct {
+	BaseSymbol string        `json:"baseSymbol"`
+	Calls      []OptionQuote `json:"calls"`
+	Puts       []OptionQuote `json:"puts"`
+}
+
+// OptionQuote represents a single option quote in the chain.
+type OptionQuote struct {
+	Instrument   OptionInstrument `json:"instrument"`
+	Outcome      string           `json:"outcome"`
+	Last         string           `json:"last"`
+	Bid          string           `json:"bid"`
+	BidSize      int              `json:"bidSize"`
+	Ask          string           `json:"ask"`
+	AskSize      int              `json:"askSize"`
+	Volume       int              `json:"volume"`
+	OpenInterest int              `json:"openInterest"`
+}
+
 // newOptionsExpirationsCmd creates the options expirations command with the given options.
 func newOptionsExpirationsCmd(opts optionsOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -120,6 +146,133 @@ func runOptionsExpirations(cmd *cobra.Command, opts optionsOptions, symbol strin
 	return nil
 }
 
+// newOptionsChainCmd creates the options chain command with the given options.
+func newOptionsChainCmd(opts optionsOptions) *cobra.Command {
+	var expiration string
+
+	cmd := &cobra.Command{
+		Use:   "chain SYMBOL",
+		Short: "Display option chain",
+		Long: `Display the option chain for an underlying symbol and expiration date.
+
+Examples:
+  pub options chain AAPL --expiration 2025-01-17        # Show chain for date
+  pub options chain AAPL --expiration 2025-01-17 --json # Output in JSON format`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.accountID == "" {
+				return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+			}
+			if expiration == "" {
+				return fmt.Errorf("expiration date is required (use --expiration flag)")
+			}
+			return runOptionsChain(cmd, opts, args[0], expiration)
+		},
+	}
+
+	cmd.Flags().StringVarP(&expiration, "expiration", "e", "", "Expiration date (YYYY-MM-DD)")
+	cmd.SilenceUsage = true
+
+	return cmd
+}
+
+func runOptionsChain(cmd *cobra.Command, opts optionsOptions, symbol, expiration string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Build request
+	reqBody := OptionChainRequest{
+		Instrument: OptionInstrument{
+			Symbol: strings.ToUpper(symbol),
+			Type:   "EQUITY",
+		},
+		ExpirationDate: expiration,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/marketdata/%s/option-chain", opts.accountID)
+	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to fetch option chain: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var chainResp OptionChainResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chainResp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(chainResp.Calls) == 0 && len(chainResp.Puts) == 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No options available for %s expiring %s\n", chainResp.BaseSymbol, expiration)
+		return nil
+	}
+
+	// Format output
+	if opts.jsonMode {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(chainResp)
+	}
+
+	// Table output
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Option Chain for %s - Expiration: %s\n\n", chainResp.BaseSymbol, expiration)
+
+	if len(chainResp.Calls) > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "CALLS\n")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "Strike", "Bid", "Ask", "Volume", "OI")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "------", "------", "------", "------", "------")
+		for _, call := range chainResp.Calls {
+			strike := parseStrikeFromSymbol(call.Instrument.Symbol)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10d  %10d\n",
+				strike, call.Bid, call.Ask, call.Volume, call.OpenInterest)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n")
+	}
+
+	if len(chainResp.Puts) > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "PUTS\n")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "Strike", "Bid", "Ask", "Volume", "OI")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "------", "------", "------", "------", "------")
+		for _, put := range chainResp.Puts {
+			strike := parseStrikeFromSymbol(put.Instrument.Symbol)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10d  %10d\n",
+				strike, put.Bid, put.Ask, put.Volume, put.OpenInterest)
+		}
+	}
+
+	return nil
+}
+
+// parseStrikeFromSymbol extracts the strike price from an OSI option symbol.
+// Example: AAPL250117C00175000 -> 175.00
+func parseStrikeFromSymbol(symbol string) string {
+	if len(symbol) < 8 {
+		return symbol
+	}
+	// Last 8 characters are the strike price in format: SSSSSSSS (8 digits, price * 1000)
+	strikeStr := symbol[len(symbol)-8:]
+	// Parse as integer and convert to decimal
+	var strike int64
+	if _, err := fmt.Sscanf(strikeStr, "%d", &strike); err != nil {
+		return symbol
+	}
+	dollars := strike / 1000
+	cents := (strike % 1000) / 10
+	if cents == 0 {
+		return fmt.Sprintf("%d", dollars)
+	}
+	return fmt.Sprintf("%d.%02d", dollars, cents)
+}
+
 func init() {
 	var opts optionsOptions
 	var accountID string
@@ -175,6 +328,58 @@ Examples:
 	expirationsCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
 	expirationsCmd.SilenceUsage = true
 
+	var chainAccountID string
+	var chainExpiration string
+	chainCmd := &cobra.Command{
+		Use:   "chain SYMBOL",
+		Short: "Display option chain",
+		Long: `Display the option chain for an underlying symbol and expiration date.
+
+Examples:
+  pub options chain AAPL --expiration 2025-01-17        # Show chain for date
+  pub options chain AAPL --expiration 2025-01-17 --json # Output in JSON format`,
+		Args: cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// Load config
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			// Get auth token
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := getAuthToken(store, cfg.APIBaseURL)
+			if err != nil {
+				return err
+			}
+
+			// Use flag value or default from config
+			if chainAccountID == "" {
+				chainAccountID = cfg.AccountUUID
+			}
+
+			opts.baseURL = cfg.APIBaseURL
+			opts.authToken = token
+			opts.accountID = chainAccountID
+			opts.jsonMode = GetJSONMode()
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.accountID == "" {
+				return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+			}
+			if chainExpiration == "" {
+				return fmt.Errorf("expiration date is required (use --expiration flag)")
+			}
+			return runOptionsChain(cmd, opts, args[0], chainExpiration)
+		},
+	}
+
+	chainCmd.Flags().StringVarP(&chainAccountID, "account", "a", "", "Account ID (uses default if not specified)")
+	chainCmd.Flags().StringVarP(&chainExpiration, "expiration", "e", "", "Expiration date (YYYY-MM-DD)")
+	chainCmd.SilenceUsage = true
+
 	optionsCmd.AddCommand(expirationsCmd)
+	optionsCmd.AddCommand(chainCmd)
 	rootCmd.AddCommand(optionsCmd)
 }
