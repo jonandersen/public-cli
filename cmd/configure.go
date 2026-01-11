@@ -142,6 +142,7 @@ var reconfigureMenuOptions = []string{
 	"Select different default account",
 	"Configure new secret key",
 	"View current configuration",
+	"Toggle trading (enable/disable)",
 	"Clear secret key",
 }
 
@@ -190,7 +191,9 @@ func runReconfigureMenu(cmd *cobra.Command, opts configureOptions) error {
 		return runInitialSetup(cmd, opts, "")
 	case 2: // View current configuration
 		return runViewConfiguration(cmd, opts)
-	case 3: // Clear secret key
+	case 3: // Toggle trading
+		return runToggleTrading(cmd, opts)
+	case 4: // Clear secret key
 		return runClearSecret(cmd, opts)
 	default:
 		return fmt.Errorf("invalid selection")
@@ -378,6 +381,12 @@ func runViewConfiguration(cmd *cobra.Command, opts configureOptions) error {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "API base URL: %s\n", cfg.APIBaseURL)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Token validity: %d minutes\n", cfg.TokenValidityMinutes)
 
+	if cfg.TradingEnabled {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Trading: ENABLED")
+	} else {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Trading: DISABLED (orders blocked)")
+	}
+
 	return nil
 }
 
@@ -388,6 +397,29 @@ func runClearSecret(cmd *cobra.Command, opts configureOptions) error {
 	}
 
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Secret key cleared successfully.")
+	return nil
+}
+
+// runToggleTrading enables or disables trading.
+func runToggleTrading(cmd *cobra.Command, opts configureOptions) error {
+	cfg, err := config.Load(opts.configPath)
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	// Toggle the current state
+	cfg.TradingEnabled = !cfg.TradingEnabled
+
+	if err := config.Save(opts.configPath, cfg); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	if cfg.TradingEnabled {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Trading is now ENABLED. You can place orders.")
+	} else {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Trading is now DISABLED. Order commands will be blocked.")
+	}
+
 	return nil
 }
 

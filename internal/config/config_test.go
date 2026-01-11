@@ -162,6 +162,75 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.AccountUUID != "" {
 		t.Errorf("AccountUUID = %q, want empty", cfg.AccountUUID)
 	}
+	if cfg.TradingEnabled != false {
+		t.Errorf("TradingEnabled = %v, want false (safe default)", cfg.TradingEnabled)
+	}
+}
+
+func TestCheckTrading_Disabled(t *testing.T) {
+	cfg := DefaultConfig()
+	// Default should have trading disabled
+	err := cfg.CheckTrading()
+	if err == nil {
+		t.Error("CheckTrading() error = nil, want ErrTradingDisabled")
+	}
+	if err != ErrTradingDisabled {
+		t.Errorf("CheckTrading() error = %v, want ErrTradingDisabled", err)
+	}
+}
+
+func TestCheckTrading_Enabled(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TradingEnabled = true
+
+	err := cfg.CheckTrading()
+	if err != nil {
+		t.Errorf("CheckTrading() error = %v, want nil", err)
+	}
+}
+
+func TestLoad_TradingEnabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	content := `trading_enabled: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if !cfg.TradingEnabled {
+		t.Error("TradingEnabled = false, want true")
+	}
+}
+
+func TestSave_TradingEnabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	cfg := &Config{
+		APIBaseURL:           DefaultAPIBaseURL,
+		TokenValidityMinutes: DefaultTokenValidityMinutes,
+		TradingEnabled:       true,
+	}
+
+	if err := Save(configPath, cfg); err != nil {
+		t.Fatalf("Save() error = %v, want nil", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() after Save() error = %v", err)
+	}
+
+	if !loaded.TradingEnabled {
+		t.Error("TradingEnabled = false after load, want true")
+	}
 }
 
 func TestConfigDir_WithXDG(t *testing.T) {

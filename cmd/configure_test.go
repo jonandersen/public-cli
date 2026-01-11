@@ -476,7 +476,7 @@ func TestConfigureCmd_ClearSecret(t *testing.T) {
 	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "existing-secret")
 
 	pwReader := newMockPasswordReader("", true)
-	prompt := newMockPrompt(3) // Select "Clear secret key"
+	prompt := newMockPrompt(4) // Select "Clear secret key" (index 4 after Toggle trading)
 
 	cmd := newConfigureCmd(configureOptions{
 		configPath:     configPath,
@@ -498,6 +498,90 @@ func TestConfigureCmd_ClearSecret(t *testing.T) {
 	// Verify secret was removed
 	_, err = store.Get(keyring.ServiceName, keyring.KeySecretKey)
 	assert.ErrorIs(t, err, keyring.ErrNotFound)
+}
+
+func TestConfigureCmd_ToggleTrading(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Create config file with trading disabled (default)
+	cfg := &config.Config{
+		APIBaseURL:           "https://api.public.com",
+		TokenValidityMinutes: 60,
+		TradingEnabled:       false,
+	}
+	require.NoError(t, config.Save(configPath, cfg))
+
+	// Pre-configure
+	store := keyring.NewMockStore()
+	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "existing-secret")
+
+	pwReader := newMockPasswordReader("", true)
+	prompt := newMockPrompt(3) // Select "Toggle trading"
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        "https://api.example.com",
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "Trading is now ENABLED")
+
+	// Verify config was updated
+	loaded, err := config.Load(configPath)
+	require.NoError(t, err)
+	assert.True(t, loaded.TradingEnabled)
+}
+
+func TestConfigureCmd_ToggleTradingOff(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Create config file with trading enabled
+	cfg := &config.Config{
+		APIBaseURL:           "https://api.public.com",
+		TokenValidityMinutes: 60,
+		TradingEnabled:       true,
+	}
+	require.NoError(t, config.Save(configPath, cfg))
+
+	// Pre-configure
+	store := keyring.NewMockStore()
+	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "existing-secret")
+
+	pwReader := newMockPasswordReader("", true)
+	prompt := newMockPrompt(3) // Select "Toggle trading"
+
+	cmd := newConfigureCmd(configureOptions{
+		configPath:     configPath,
+		baseURL:        "https://api.example.com",
+		store:          store,
+		passwordReader: pwReader,
+		prompt:         prompt,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "Trading is now DISABLED")
+
+	// Verify config was updated
+	loaded, err := config.Load(configPath)
+	require.NoError(t, err)
+	assert.False(t, loaded.TradingEnabled)
 }
 
 func TestConfigureCmd_ViewConfiguration(t *testing.T) {

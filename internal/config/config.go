@@ -24,6 +24,18 @@ type Config struct {
 	AccountUUID          string `yaml:"account_uuid"`
 	APIBaseURL           string `yaml:"api_base_url"`
 	TokenValidityMinutes int    `yaml:"token_validity_minutes"`
+	TradingEnabled       bool   `yaml:"trading_enabled"`
+}
+
+// ErrTradingDisabled is returned when a trading operation is attempted but trading is disabled.
+var ErrTradingDisabled = fmt.Errorf("trading is disabled - run 'pub configure' and enable trading to place orders")
+
+// CheckTrading returns ErrTradingDisabled if trading is not enabled.
+func (c *Config) CheckTrading() error {
+	if !c.TradingEnabled {
+		return ErrTradingDisabled
+	}
+	return nil
 }
 
 // DefaultConfig returns a Config with default values.
