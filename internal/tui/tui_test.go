@@ -286,9 +286,18 @@ func TestWatchlistModel(t *testing.T) {
 func TestOrdersModel(t *testing.T) {
 	om := NewOrdersModel()
 	assert.NotNil(t, om)
+	assert.Equal(t, OrdersStateLoading, om.State)
+
+	// Initial view shows loading
 	view := om.View()
-	assert.Contains(t, view, "Orders")
-	assert.Contains(t, view, "Coming soon")
+	assert.Contains(t, view, "Loading orders...")
+
+	// After loading with empty orders
+	om.State = OrdersStateLoaded
+	om.Orders = []Order{}
+	view = om.View()
+	assert.Contains(t, view, "Open Orders")
+	assert.Contains(t, view, "No open orders")
 }
 
 func TestTradeModel(t *testing.T) {

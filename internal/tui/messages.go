@@ -27,5 +27,25 @@ type WatchlistErrorMsg struct {
 // WatchlistSavedMsg is sent when watchlist config is saved.
 type WatchlistSavedMsg struct{}
 
+// OrdersLoadedMsg is sent when orders are loaded successfully.
+type OrdersLoadedMsg struct {
+	Orders []Order
+}
+
+// OrdersErrorMsg is sent when orders loading fails.
+type OrdersErrorMsg struct {
+	Err error
+}
+
+// OrderCancelledMsg is sent when an order is cancelled.
+type OrderCancelledMsg struct {
+	OrderID string
+}
+
+// OrderCancelErrorMsg is sent when order cancellation fails.
+type OrderCancelErrorMsg struct {
+	Err error
+}
+
 // TickMsg is sent periodically for auto-refresh.
 type TickMsg time.Time

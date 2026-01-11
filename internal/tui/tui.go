@@ -98,6 +98,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Handle orders cancel mode - consumes all keys
+		if m.currentView == ViewOrders && m.orders.Mode != OrdersModeNormal {
+			m.orders, cmd, _ = m.orders.Update(msg, m.cfg, m.store)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		// Handle global keys
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -114,6 +123,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "3":
 			m.currentView = ViewOrders
+			if m.orders.State == OrdersStateLoading {
+				cmds = append(cmds, FetchOrders(m.cfg, m.store))
+			}
 		case "4":
 			m.currentView = ViewTrade
 		case "r":
@@ -125,6 +137,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewWatchlist:
 				m.watchlist.State = WatchlistStateLoading
 				cmds = append(cmds, FetchWatchlistQuotes(m.watchlist.Symbols, m.cfg, m.store))
+			case ViewOrders:
+				m.orders.State = OrdersStateLoading
+				cmds = append(cmds, FetchOrders(m.cfg, m.store))
 			}
 		case "enter":
 			// Jump to trade from watchlist
@@ -140,6 +155,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.currentView {
 			case ViewWatchlist:
 				m.watchlist, cmd, _ = m.watchlist.Update(msg, m.uiCfg)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			case ViewOrders:
+				m.orders, cmd, _ = m.orders.Update(msg, m.cfg, m.store)
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -160,6 +180,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.portfolio.SetHeight(tableHeight)
 		m.watchlist.SetHeight(tableHeight)
+		m.orders.SetHeight(tableHeight)
 
 	case PortfolioLoadedMsg, PortfolioErrorMsg:
 		m.portfolio, cmd = m.portfolio.Update(msg)
@@ -169,19 +190,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.watchlist, cmd, _ = m.watchlist.Update(msg, m.uiCfg)
 		cmds = append(cmds, cmd)
 
+	case OrdersLoadedMsg, OrdersErrorMsg, OrderCancelledMsg, OrderCancelErrorMsg:
+		m.orders, cmd, _ = m.orders.Update(msg, m.cfg, m.store)
+		cmds = append(cmds, cmd)
+
 	case TickMsg:
 		// Auto-refresh based on current view
 		if m.currentView == ViewPortfolio && m.portfolio.State != PortfolioStateLoading {
 			cmds = append(cmds, FetchPortfolio(m.cfg, m.store))
 		} else if m.currentView == ViewWatchlist && m.watchlist.State != WatchlistStateLoading && len(m.watchlist.Symbols) > 0 {
 			cmds = append(cmds, FetchWatchlistQuotes(m.watchlist.Symbols, m.cfg, m.store))
+		} else if m.currentView == ViewOrders && m.orders.State != OrdersStateLoading {
+			cmds = append(cmds, FetchOrders(m.cfg, m.store))
 		}
 		cmds = append(cmds, m.tickCmd())
 	}
 
 	// Update active table for navigation keys
-	if m.currentView == ViewPortfolio {
+	switch m.currentView {
+	case ViewPortfolio:
 		m.portfolio, cmd = m.portfolio.Update(msg)
+		cmds = append(cmds, cmd)
+	case ViewOrders:
+		m.orders, cmd, _ = m.orders.Update(msg, m.cfg, m.store)
 		cmds = append(cmds, cmd)
 	}
 
@@ -301,6 +332,18 @@ func (m Model) renderFooter() string {
 				{"esc", "cancel"},
 			}
 		case WatchlistModeDeleting:
+			keys = []struct{ key, desc string }{
+				{"y", "confirm"},
+				{"n", "cancel"},
+			}
+		}
+	case ViewOrders:
+		switch m.orders.Mode {
+		case OrdersModeNormal:
+			keys = append(keys, struct{ key, desc string }{"↑/↓", "navigate"})
+			keys = append(keys, struct{ key, desc string }{"c", "cancel order"})
+			keys = append(keys, struct{ key, desc string }{"r", "refresh"})
+		case OrdersModeCanceling:
 			keys = []struct{ key, desc string }{
 				{"y", "confirm"},
 				{"n", "cancel"},

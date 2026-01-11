@@ -95,3 +95,22 @@ type Quote struct {
 	Volume        int64           `json:"volume"`
 	OpenInterest  *int64          `json:"openInterest"`
 }
+
+// Order represents an open order from the API.
+type Order struct {
+	OrderID        string     `json:"orderId"`
+	Instrument     Instrument `json:"instrument"`
+	Side           string     `json:"side"`
+	Type           string     `json:"type"`
+	Status         string     `json:"status"`
+	Quantity       string     `json:"quantity"`
+	FilledQuantity string     `json:"filledQuantity"`
+	LimitPrice     string     `json:"limitPrice,omitempty"`
+	StopPrice      string     `json:"stopPrice,omitempty"`
+	CreatedAt      string     `json:"createdAt"`
+}
+
+// OrdersResponse represents the portfolio API response containing orders.
+type OrdersResponse struct {
+	Orders []Order `json:"orders"`
+}
