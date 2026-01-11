@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# GoReleaser configuration for pub CLI
+# Documentation: https://goreleaser.com
+
+version: 2
+
+project_name: pub
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: pub
+    binary: pub
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/jonandersen/pub/cmd.Version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+
+# Homebrew tap configuration
+# Option 1: Use a separate tap repository (recommended)
+# Create a repo named 'homebrew-tap' or 'homebrew-pub' under your GitHub account
+brews:
+  - name: pub
+    repository:
+      owner: jonandersen
+      name: homebrew-tap
+      # Use a personal access token with repo scope
+      # Set HOMEBREW_TAP_GITHUB_TOKEN in your GitHub secrets
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/jonandersen/pub"
+    description: "CLI for the Public.com trading API"
+    license: "MIT"
+
+    # Shell completions (if you add them later)
+    # extra_install: |-
+    #   bash_completion.install "completions/pub.bash" => "pub"
+    #   zsh_completion.install "completions/pub.zsh" => "_pub"
+    #   fish_completion.install "completions/pub.fish"
+
+    test: |
+      system "#{bin}/pub", "version"
+
+    # Skip upload during snapshot/development builds
+    skip_upload: auto
+
+    # Commit author for the formula update
+    commit_author:
+      name: goreleaser
+      email: goreleaser@users.noreply.github.com
+
+    # Commit message template
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+
+# GitHub release configuration
+release:
+  github:
+    owner: jonandersen
+    name: pub
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
