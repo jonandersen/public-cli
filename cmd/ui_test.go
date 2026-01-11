@@ -44,6 +44,10 @@ func testConfig() *config.Config {
 	}
 }
 
+func testUIConfig() *UIConfig {
+	return &UIConfig{}
+}
+
 func testStore() keyring.Store {
 	store := keyring.NewMockStore()
 	_ = store.Set(keyring.ServiceName, keyring.KeySecretKey, "test-secret")
@@ -51,21 +55,21 @@ func testStore() keyring.Store {
 }
 
 func TestNewModel(t *testing.T) {
-	m := newModel(testConfig(), testStore())
+	m := newModel(testConfig(), testUIConfig(), testStore())
 	assert.NotNil(t, m)
 	assert.Equal(t, viewPortfolio, m.currentView)
 	assert.Equal(t, portfolioStateLoading, m.portfolio.state)
 }
 
 func TestModelInit(t *testing.T) {
-	m := newModel(testConfig(), testStore())
+	m := newModel(testConfig(), testUIConfig(), testStore())
 	cmd := m.Init()
 	// Init should return a batch command (fetch + tick)
 	assert.NotNil(t, cmd)
 }
 
 func TestModelView(t *testing.T) {
-	m := newModel(testConfig(), testStore())
+	m := newModel(testConfig(), testUIConfig(), testStore())
 	m.width = 80
 	m.height = 24
 	m.ready = true
@@ -78,7 +82,7 @@ func TestModelView(t *testing.T) {
 }
 
 func TestModelViewLoading(t *testing.T) {
-	m := newModel(testConfig(), testStore())
+	m := newModel(testConfig(), testUIConfig(), testStore())
 	m.width = 80
 	m.height = 24
 	m.ready = true
@@ -89,7 +93,7 @@ func TestModelViewLoading(t *testing.T) {
 }
 
 func TestModelViewError(t *testing.T) {
-	m := newModel(testConfig(), testStore())
+	m := newModel(testConfig(), testUIConfig(), testStore())
 	m.width = 80
 	m.height = 24
 	m.ready = true
@@ -102,7 +106,7 @@ func TestModelViewError(t *testing.T) {
 }
 
 func TestModelViewWithPositions(t *testing.T) {
-	m := newModel(testConfig(), testStore())
+	m := newModel(testConfig(), testUIConfig(), testStore())
 	m.width = 120
 	m.height = 30
 	m.ready = true
@@ -139,4 +143,158 @@ func TestModelViewWithPositions(t *testing.T) {
 	assert.Contains(t, view, "Account Summary")
 	assert.Contains(t, view, "AAPL")
 	assert.Contains(t, view, "Positions")
+}
+
+func TestWatchlistViewEmpty(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = viewWatchlist
+	m.watchlist.state = watchlistStateLoaded
+	m.watchlist.symbols = []string{}
+
+	view := m.View()
+	assert.Contains(t, view, "Watchlist")
+	assert.Contains(t, view, "No symbols")
+}
+
+func TestWatchlistViewWithSymbols(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = viewWatchlist
+	m.watchlist.state = watchlistStateLoaded
+	m.watchlist.symbols = []string{"AAPL", "GOOGL"}
+	m.watchlist.quotes = map[string]Quote{
+		"AAPL": {
+			Instrument: QuoteInstrument{Symbol: "AAPL", Type: "EQUITY"},
+			Outcome:    "SUCCESS",
+			Last:       "150.00",
+			Bid:        "149.95",
+			Ask:        "150.05",
+			Volume:     1000000,
+		},
+		"GOOGL": {
+			Instrument: QuoteInstrument{Symbol: "GOOGL", Type: "EQUITY"},
+			Outcome:    "SUCCESS",
+			Last:       "140.00",
+			Bid:        "139.95",
+			Ask:        "140.05",
+			Volume:     500000,
+		},
+	}
+	m.updateWatchlistTable()
+
+	view := m.View()
+	assert.Contains(t, view, "Watchlist")
+	assert.Contains(t, view, "AAPL")
+	assert.Contains(t, view, "GOOGL")
+}
+
+func TestWatchlistAddMode(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = viewWatchlist
+	m.watchlistMode = watchlistModeAdding
+
+	view := m.View()
+	assert.Contains(t, view, "Add Symbol")
+	assert.Contains(t, view, "Enter to add")
+}
+
+func TestWatchlistDeleteMode(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = viewWatchlist
+	m.watchlistMode = watchlistModeDeleting
+	m.deleteSymbol = "AAPL"
+
+	view := m.View()
+	assert.Contains(t, view, "Delete AAPL")
+	assert.Contains(t, view, "confirm")
+}
+
+func TestWatchlistLoading(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = viewWatchlist
+	m.watchlist.state = watchlistStateLoading
+
+	view := m.View()
+	assert.Contains(t, view, "Loading")
+}
+
+func TestWatchlistError(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = viewWatchlist
+	m.watchlist.state = watchlistStateError
+	m.watchlist.err = assert.AnError
+
+	view := m.View()
+	assert.Contains(t, view, "Error")
+	assert.Contains(t, view, "retry")
+}
+
+func TestWatchlistFooterKeys(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = viewWatchlist
+	m.watchlistMode = watchlistModeNormal
+	m.watchlist.state = watchlistStateLoaded
+
+	view := m.View()
+	// Footer should contain watchlist-specific keys
+	assert.Contains(t, view, "add")
+	assert.Contains(t, view, "delete")
+}
+
+func testUIConfigWithWatchlist() *UIConfig {
+	return &UIConfig{
+		Watchlist: []string{"AAPL", "GOOGL"},
+	}
+}
+
+func TestNewModelLoadsWatchlist(t *testing.T) {
+	uiCfg := testUIConfigWithWatchlist()
+	m := newModel(testConfig(), uiCfg, testStore())
+
+	assert.Equal(t, []string{"AAPL", "GOOGL"}, m.watchlist.symbols)
+}
+
+func TestUpdateWatchlistTable(t *testing.T) {
+	m := newModel(testConfig(), testUIConfig(), testStore())
+	m.watchlist.symbols = []string{"AAPL", "MSFT"}
+	m.watchlist.quotes = map[string]Quote{
+		"AAPL": {
+			Instrument: QuoteInstrument{Symbol: "AAPL"},
+			Outcome:    "SUCCESS",
+			Last:       "150.00",
+			Bid:        "149.95",
+			Ask:        "150.05",
+			Volume:     1000000,
+		},
+	}
+	m.updateWatchlistTable()
+
+	rows := m.watchlistTable.Rows()
+	assert.Len(t, rows, 2)
+	// AAPL should have quote data
+	assert.Equal(t, "AAPL", rows[0][0])
+	assert.Equal(t, "$150.00", rows[0][1])
+	// MSFT should have placeholders (no quote)
+	assert.Equal(t, "MSFT", rows[1][0])
+	assert.Equal(t, "-", rows[1][1])
 }
