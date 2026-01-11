@@ -77,6 +77,9 @@ Example:
 
 	cmd.Flags().StringVar(&accountUUID, "account", "", "Default account UUID (optional)")
 
+	// Don't show usage info on validation errors - just show the error
+	cmd.SilenceUsage = true
+
 	return cmd
 }
 
