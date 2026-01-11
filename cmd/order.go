@@ -55,16 +55,33 @@ type OrderResponse struct {
 	OrderID string `json:"orderId"`
 }
 
+// OrderStatusResponse represents the API response for order status.
+type OrderStatusResponse struct {
+	OrderID        string          `json:"orderId"`
+	Instrument     OrderInstrument `json:"instrument"`
+	CreatedAt      string          `json:"createdAt"`
+	Type           string          `json:"type"`
+	Side           string          `json:"side"`
+	Status         string          `json:"status"`
+	Quantity       string          `json:"quantity"`
+	LimitPrice     string          `json:"limitPrice,omitempty"`
+	StopPrice      string          `json:"stopPrice,omitempty"`
+	FilledQuantity string          `json:"filledQuantity"`
+	AveragePrice   string          `json:"averagePrice,omitempty"`
+	ClosedAt       string          `json:"closedAt,omitempty"`
+}
+
 // newOrderCmd creates the parent order command.
 func newOrderCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "order",
 		Short: "Place and manage orders",
-		Long: `Place buy and sell orders for stocks and ETFs, and cancel open orders.
+		Long: `Place buy and sell orders for stocks and ETFs, check status, and cancel open orders.
 
 Examples:
   pub order buy AAPL --quantity 10                              # Buy 10 shares of Apple
   pub order sell AAPL --quantity 5                              # Sell 5 shares of Apple
+  pub order status 912710f1-1a45-4ef0-88a7-cd513781933d         # Check order status
   pub order cancel 912710f1-1a45-4ef0-88a7-cd513781933d --yes   # Cancel an order`,
 	}
 
@@ -145,6 +162,88 @@ Examples:
 	cmd.SilenceUsage = true
 
 	return cmd
+}
+
+// newOrderStatusCmd creates the status subcommand with the given options.
+func newOrderStatusCmd(opts orderOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status ORDER_ID",
+		Short: "Check the status of an order",
+		Long: `Check the status of an order by its order ID.
+
+Status values: NEW, PARTIALLY_FILLED, FILLED, CANCELLED, REJECTED, EXPIRED
+
+Examples:
+  pub order status 912710f1-1a45-4ef0-88a7-cd513781933d`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runOrderStatus(cmd, opts, args[0])
+		},
+	}
+
+	cmd.SilenceUsage = true
+
+	return cmd
+}
+
+func runOrderStatus(cmd *cobra.Command, opts orderOptions, orderID string) error {
+	// Validate inputs
+	if opts.accountID == "" {
+		return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/order/%s", opts.accountID, orderID)
+	resp, err := client.Get(ctx, path)
+	if err != nil {
+		return fmt.Errorf("failed to get order status: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var orderStatus OrderStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&orderStatus); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Output result
+	if opts.jsonMode {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(orderStatus)
+	}
+
+	// Human-readable output
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nOrder Status:\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID:   %s\n", orderStatus.OrderID)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Symbol:     %s\n", orderStatus.Instrument.Symbol)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Side:       %s\n", orderStatus.Side)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Type:       %s\n", orderStatus.Type)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Status:     %s\n", orderStatus.Status)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Quantity:   %s\n", orderStatus.Quantity)
+	if orderStatus.LimitPrice != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Limit:      $%s\n", orderStatus.LimitPrice)
+	}
+	if orderStatus.StopPrice != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Stop:       $%s\n", orderStatus.StopPrice)
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Filled:     %s\n", orderStatus.FilledQuantity)
+	if orderStatus.AveragePrice != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Avg Price:  $%s\n", orderStatus.AveragePrice)
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Created:    %s\n", orderStatus.CreatedAt)
+	if orderStatus.ClosedAt != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Closed:     %s\n", orderStatus.ClosedAt)
+	}
+
+	return nil
 }
 
 func runCancelOrder(cmd *cobra.Command, opts orderOptions, orderID string, skipConfirm bool) error {
@@ -437,8 +536,49 @@ Examples:
 	cancelCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
 	cancelCmd.SilenceUsage = true
 
+	// Status subcommand
+	statusCmd := &cobra.Command{
+		Use:   "status ORDER_ID",
+		Short: "Check the status of an order",
+		Long: `Check the status of an order by its order ID.
+
+Status values: NEW, PARTIALLY_FILLED, FILLED, CANCELLED, REJECTED, EXPIRED
+
+Examples:
+  pub order status 912710f1-1a45-4ef0-88a7-cd513781933d`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := getAuthToken(store, cfg.APIBaseURL)
+			if err != nil {
+				return err
+			}
+
+			if accountID == "" {
+				accountID = cfg.AccountUUID
+			}
+
+			opts := orderOptions{
+				baseURL:   cfg.APIBaseURL,
+				authToken: token,
+				accountID: accountID,
+				jsonMode:  GetJSONMode(),
+			}
+
+			return runOrderStatus(cmd, opts, args[0])
+		},
+	}
+	statusCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
+	statusCmd.SilenceUsage = true
+
 	orderCmd.AddCommand(buyCmd)
 	orderCmd.AddCommand(sellCmd)
 	orderCmd.AddCommand(cancelCmd)
+	orderCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(orderCmd)
 }

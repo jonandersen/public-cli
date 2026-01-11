@@ -442,3 +442,220 @@ func TestOrderCancelCmd_JSON(t *testing.T) {
 	assert.Equal(t, orderID, result["orderId"])
 	assert.Equal(t, "cancel_requested", result["status"])
 }
+
+func TestOrderStatusCmd_Success(t *testing.T) {
+	orderID := "912710f1-1a45-4ef0-88a7-cd513781933d"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/userapigateway/trading/test-account/order/"+orderID, r.URL.Path)
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+		resp := map[string]any{
+			"orderId": orderID,
+			"instrument": map[string]any{
+				"symbol": "AAPL",
+				"type":   "EQUITY",
+			},
+			"createdAt":      "2025-01-10T10:30:00Z",
+			"type":           "LIMIT",
+			"side":           "BUY",
+			"status":         "FILLED",
+			"quantity":       "10",
+			"limitPrice":     "175.00",
+			"filledQuantity": "10",
+			"averagePrice":   "174.95",
+			"closedAt":       "2025-01-10T10:30:05Z",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderStatusCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{orderID})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, orderID)
+	assert.Contains(t, output, "FILLED")
+	assert.Contains(t, output, "AAPL")
+	assert.Contains(t, output, "BUY")
+}
+
+func TestOrderStatusCmd_PartiallyFilled(t *testing.T) {
+	orderID := "912710f1-1a45-4ef0-88a7-cd513781933d"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"orderId": orderID,
+			"instrument": map[string]any{
+				"symbol": "AAPL",
+				"type":   "EQUITY",
+			},
+			"createdAt":      "2025-01-10T10:30:00Z",
+			"type":           "LIMIT",
+			"side":           "BUY",
+			"status":         "PARTIALLY_FILLED",
+			"quantity":       "10",
+			"limitPrice":     "175.00",
+			"filledQuantity": "5",
+			"averagePrice":   "174.95",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderStatusCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{orderID})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "PARTIALLY_FILLED")
+	assert.Contains(t, output, "5")  // filledQuantity
+	assert.Contains(t, output, "10") // total quantity
+}
+
+func TestOrderStatusCmd_JSON(t *testing.T) {
+	orderID := "912710f1-1a45-4ef0-88a7-cd513781933d"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"orderId": orderID,
+			"instrument": map[string]any{
+				"symbol": "AAPL",
+				"type":   "EQUITY",
+			},
+			"createdAt":      "2025-01-10T10:30:00Z",
+			"type":           "LIMIT",
+			"side":           "BUY",
+			"status":         "FILLED",
+			"quantity":       "10",
+			"limitPrice":     "175.00",
+			"filledQuantity": "10",
+			"averagePrice":   "174.95",
+			"closedAt":       "2025-01-10T10:30:05Z",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderStatusCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{orderID})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	var result map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, orderID, result["orderId"])
+	assert.Equal(t, "FILLED", result["status"])
+	assert.Equal(t, "10", result["filledQuantity"])
+	assert.Equal(t, "174.95", result["averagePrice"])
+}
+
+func TestOrderStatusCmd_RequiresOrderID(t *testing.T) {
+	cmd := newOrderStatusCmd(orderOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "arg")
+}
+
+func TestOrderStatusCmd_RequiresAccount(t *testing.T) {
+	cmd := newOrderStatusCmd(orderOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"912710f1-1a45-4ef0-88a7-cd513781933d"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "account")
+}
+
+func TestOrderStatusCmd_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error": "order_not_found"}`))
+	}))
+	defer server.Close()
+
+	cmd := newOrderStatusCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"912710f1-1a45-4ef0-88a7-cd513781933d"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+}
+
+func TestOrderStatusCmd_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error": "internal_error"}`))
+	}))
+	defer server.Close()
+
+	cmd := newOrderStatusCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"912710f1-1a45-4ef0-88a7-cd513781933d"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
+}
