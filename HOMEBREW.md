@@ -63,7 +63,7 @@ brew untap jonandersen/tap  # optional
 
 3. **Add the token as a repository secret**
 
-   In the `pub` repository:
+   In the `public-cli` repository:
    - Go to Settings → Secrets and variables → Actions
    - Click "New repository secret"
    - Name: `HOMEBREW_TAP_GITHUB_TOKEN`

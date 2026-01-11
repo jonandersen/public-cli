@@ -70,7 +70,7 @@ brews:
       # Set HOMEBREW_TAP_GITHUB_TOKEN in your GitHub secrets
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/jonandersen/pub"
+    homepage: "https://github.com/jonandersen/public-cli"
     description: "CLI for the Public.com trading API"
     license: "MIT"
 
@@ -98,7 +98,7 @@ brews:
 release:
   github:
     owner: jonandersen
-    name: pub
+    name: public-cli
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"

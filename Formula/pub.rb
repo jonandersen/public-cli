@@ -10,7 +10,7 @@
 
 class Pub < Formula
   desc "CLI for the Public.com trading API"
-  homepage "https://github.com/jonandersen/pub"
+  homepage "https://github.com/jonandersen/public-cli"
   license "MIT"
 
   # GoReleaser will update these values automatically
@@ -18,24 +18,24 @@ class Pub < Formula
 
   on_macos do
     on_intel do
-      url "https://github.com/jonandersen/pub/releases/download/v#{version}/pub_#{version}_darwin_amd64.tar.gz"
+      url "https://github.com/jonandersen/public-cli/releases/download/v#{version}/pub_#{version}_darwin_amd64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_DARWIN_AMD64"
     end
 
     on_arm do
-      url "https://github.com/jonandersen/pub/releases/download/v#{version}/pub_#{version}_darwin_arm64.tar.gz"
+      url "https://github.com/jonandersen/public-cli/releases/download/v#{version}/pub_#{version}_darwin_arm64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_DARWIN_ARM64"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/jonandersen/pub/releases/download/v#{version}/pub_#{version}_linux_amd64.tar.gz"
+      url "https://github.com/jonandersen/public-cli/releases/download/v#{version}/pub_#{version}_linux_amd64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_LINUX_AMD64"
     end
 
     on_arm do
-      url "https://github.com/jonandersen/pub/releases/download/v#{version}/pub_#{version}_linux_arm64.tar.gz"
+      url "https://github.com/jonandersen/public-cli/releases/download/v#{version}/pub_#{version}_linux_arm64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_LINUX_ARM64"
     end
   end
