@@ -840,3 +840,220 @@ func TestOrderListCmd_APIError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
+
+func TestOrderBuyCmd_LimitOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		err := json.NewDecoder(r.Body).Decode(&req)
+		require.NoError(t, err)
+
+		// Verify limit order fields
+		assert.Equal(t, "LIMIT", req["orderType"])
+		assert.Equal(t, "175.50", req["limitPrice"])
+		assert.Equal(t, "BUY", req["orderSide"])
+		assert.Equal(t, "10", req["quantity"])
+
+		resp := map[string]any{"orderId": req["orderId"]}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10", "--limit", "175.50", "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "Order placed")
+	assert.Contains(t, output, "LIMIT")
+}
+
+func TestOrderSellCmd_StopOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		err := json.NewDecoder(r.Body).Decode(&req)
+		require.NoError(t, err)
+
+		// Verify stop order fields
+		assert.Equal(t, "STOP", req["orderType"])
+		assert.Equal(t, "145.00", req["stopPrice"])
+		assert.Equal(t, "SELL", req["orderSide"])
+
+		resp := map[string]any{"orderId": req["orderId"]}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderSellCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "5", "--stop", "145.00", "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "Order placed")
+	assert.Contains(t, output, "STOP")
+}
+
+func TestOrderBuyCmd_StopLimitOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		err := json.NewDecoder(r.Body).Decode(&req)
+		require.NoError(t, err)
+
+		// Verify stop-limit order fields
+		assert.Equal(t, "STOP_LIMIT", req["orderType"])
+		assert.Equal(t, "175.00", req["limitPrice"])
+		assert.Equal(t, "174.00", req["stopPrice"])
+
+		resp := map[string]any{"orderId": req["orderId"]}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10", "--limit", "175.00", "--stop", "174.00", "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "Order placed")
+	assert.Contains(t, output, "STOP_LIMIT")
+}
+
+func TestOrderBuyCmd_GTC_Expiration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		err := json.NewDecoder(r.Body).Decode(&req)
+		require.NoError(t, err)
+
+		expiration := req["expiration"].(map[string]any)
+		assert.Equal(t, "GTC", expiration["timeInForce"])
+
+		resp := map[string]any{"orderId": req["orderId"]}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10", "--limit", "175.00", "--expiration", "GTC", "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+}
+
+func TestOrderCmd_LimitOrderPreview(t *testing.T) {
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        "http://localhost",
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10", "--limit", "175.50"})
+
+	// Without --yes, should show preview
+	err := cmd.Execute()
+	require.Error(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "Order Preview")
+	assert.Contains(t, output, "LIMIT")
+	assert.Contains(t, output, "175.50")
+}
+
+func TestOrderCmd_StopLimitOrderPreview(t *testing.T) {
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        "http://localhost",
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10", "--limit", "175.00", "--stop", "174.00"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "Order Preview")
+	assert.Contains(t, output, "STOP_LIMIT")
+	assert.Contains(t, output, "175.00") // limit price
+	assert.Contains(t, output, "174.00") // stop price
+}
+
+func TestOrderBuyCmd_LimitOrderJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		resp := map[string]any{"orderId": req["orderId"]}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+		jsonMode:       true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10", "--limit", "175.50", "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	var result map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "LIMIT", result["orderType"])
+	assert.Equal(t, "175.50", result["limitPrice"])
+}
