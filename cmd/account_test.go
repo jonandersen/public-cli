@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jonandersen/pub/internal/keyring"
 )
 
 func TestAccountListCmd_Success(t *testing.T) {
@@ -266,4 +268,24 @@ func TestAccountPortfolioCmd_RequiresAccount(t *testing.T) {
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "account")
+}
+
+func TestGetAuthToken_NotConfigured(t *testing.T) {
+	store := keyring.NewMockStore() // Empty store - no secret key
+
+	_, err := getAuthToken(store, "https://api.public.com")
+	require.Error(t, err)
+
+	// Verify error message matches expected format
+	assert.Contains(t, err.Error(), "CLI not configured")
+	assert.Contains(t, err.Error(), "pub configure")
+	assert.Contains(t, err.Error(), "PUB_SECRET_KEY")
+}
+
+func TestGetAuthToken_KeyringError(t *testing.T) {
+	store := keyring.NewMockStore().WithGetError(assert.AnError)
+
+	_, err := getAuthToken(store, "https://api.public.com")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to retrieve secret")
 }
