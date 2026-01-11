@@ -159,3 +159,54 @@ func TestGetToken_ContextCancellation(t *testing.T) {
 	assert.Nil(t, token)
 	require.Error(t, err)
 }
+
+func TestClearToken_ExistingFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, ".token_cache")
+
+	// Create a token file
+	token := &Token{
+		AccessToken: "test-token",
+		ExpiresAt:   time.Now().Unix() + 3600,
+	}
+	err := SaveToken(cachePath, token)
+	require.NoError(t, err)
+
+	// Verify file exists
+	_, err = os.Stat(cachePath)
+	require.NoError(t, err)
+
+	// Clear the token
+	err = ClearToken(cachePath)
+	require.NoError(t, err)
+
+	// Verify file is removed
+	_, err = os.Stat(cachePath)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestClearToken_NonExistentFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, ".nonexistent_token")
+
+	// Clear a non-existent file should succeed
+	err := ClearToken(cachePath)
+	require.NoError(t, err)
+}
+
+func TestClearToken_Directory(t *testing.T) {
+	tmpDir := t.TempDir()
+	dirPath := filepath.Join(tmpDir, "subdir")
+	err := os.Mkdir(dirPath, 0755)
+	require.NoError(t, err)
+
+	// Create a file inside to make the directory non-empty
+	// os.Remove on non-empty directory returns an error
+	filePath := filepath.Join(dirPath, "file.txt")
+	err = os.WriteFile(filePath, []byte("test"), 0600)
+	require.NoError(t, err)
+
+	// Trying to clear a non-empty directory should return an error
+	err = ClearToken(dirPath)
+	require.Error(t, err)
+}
