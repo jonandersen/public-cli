@@ -55,6 +55,35 @@ type OrderResponse struct {
 	OrderID string `json:"orderId"`
 }
 
+// PreflightRequest represents a preflight request to estimate order costs.
+type PreflightRequest struct {
+	Instrument OrderInstrument `json:"instrument"`
+	OrderSide  string          `json:"orderSide"`
+	OrderType  string          `json:"orderType"`
+	Expiration OrderExpiration `json:"expiration"`
+	Quantity   string          `json:"quantity,omitempty"`
+	LimitPrice string          `json:"limitPrice,omitempty"`
+	StopPrice  string          `json:"stopPrice,omitempty"`
+}
+
+// RegulatoryFees represents the breakdown of regulatory fees.
+type RegulatoryFees struct {
+	SECFee string `json:"secFee"`
+	TAFFee string `json:"tafFee"`
+	ORFFee string `json:"orfFee"`
+}
+
+// PreflightResponse represents the API response for preflight estimation.
+type PreflightResponse struct {
+	Instrument             OrderInstrument `json:"instrument"`
+	EstimatedCommission    string          `json:"estimatedCommission"`
+	RegulatoryFees         RegulatoryFees  `json:"regulatoryFees"`
+	EstimatedCost          string          `json:"estimatedCost"`
+	BuyingPowerRequirement string          `json:"buyingPowerRequirement"`
+	OrderValue             string          `json:"orderValue"`
+	EstimatedQuantity      string          `json:"estimatedQuantity"`
+}
+
 // OrderStatusResponse represents the API response for order status.
 type OrderStatusResponse struct {
 	OrderID        string          `json:"orderId"`
@@ -436,6 +465,64 @@ func runOrderList(cmd *cobra.Command, opts orderOptions) error {
 	return nil
 }
 
+// sumFees calculates the total regulatory fees.
+func sumFees(fees RegulatoryFees) string {
+	var total float64
+	if v, err := parseFloat(fees.SECFee); err == nil {
+		total += v
+	}
+	if v, err := parseFloat(fees.TAFFee); err == nil {
+		total += v
+	}
+	if v, err := parseFloat(fees.ORFFee); err == nil {
+		total += v
+	}
+	return fmt.Sprintf("%.2f", total)
+}
+
+// parseFloat parses a string as a float64, returning 0 on error.
+func parseFloat(s string) (float64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	var v float64
+	_, err := fmt.Sscanf(s, "%f", &v)
+	return v, err
+}
+
+// extractErrorMessage extracts a human-readable message from an API error.
+func extractErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	errStr := err.Error()
+
+	// Try to extract JSON error message from API response
+	// Format: "preflight API error: 400 - {"code":3003,"header":"...","message":"..."}"
+	if idx := strings.Index(errStr, "{"); idx != -1 {
+		jsonPart := errStr[idx:]
+		var apiErr struct {
+			Code    any    `json:"code"`
+			Header  string `json:"header"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(jsonPart), &apiErr) == nil {
+			if apiErr.Message != "" {
+				return apiErr.Message
+			}
+			if apiErr.Header != "" {
+				return apiErr.Header
+			}
+		}
+	}
+
+	// Fallback: return a shortened version of the error
+	if len(errStr) > 80 {
+		return errStr[:80] + "..."
+	}
+	return errStr
+}
+
 // determineOrderType determines the order type based on the provided prices.
 func determineOrderType(limitPrice, stopPrice string) string {
 	hasLimit := limitPrice != ""
@@ -451,6 +538,60 @@ func determineOrderType(limitPrice, stopPrice string) string {
 	default:
 		return "MARKET"
 	}
+}
+
+// runPreflight calls the preflight API to get estimated costs for an order.
+func runPreflight(opts orderOptions, symbol, side string, params orderParams) (*PreflightResponse, error) {
+	orderType := determineOrderType(params.limitPrice, params.stopPrice)
+
+	// Validate expiration
+	expiration := strings.ToUpper(params.expiration)
+	if expiration == "" {
+		expiration = "DAY"
+	}
+
+	preflightReq := PreflightRequest{
+		Instrument: OrderInstrument{
+			Symbol: strings.ToUpper(symbol),
+			Type:   "EQUITY",
+		},
+		OrderSide: side,
+		OrderType: orderType,
+		Expiration: OrderExpiration{
+			TimeInForce: expiration,
+		},
+		Quantity:   params.quantity,
+		LimitPrice: params.limitPrice,
+		StopPrice:  params.stopPrice,
+	}
+
+	body, err := json.Marshal(preflightReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode preflight request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/preflight/single-leg", opts.accountID)
+	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to call preflight: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("preflight API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var preflightResp PreflightResponse
+	if err := json.NewDecoder(resp.Body).Decode(&preflightResp); err != nil {
+		return nil, fmt.Errorf("failed to decode preflight response: %w", err)
+	}
+
+	return &preflightResp, nil
 }
 
 func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side string, params orderParams, skipConfirm bool) error {
@@ -478,6 +619,9 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side string, params
 		return fmt.Errorf("invalid expiration: %s (use DAY or GTC)", params.expiration)
 	}
 
+	// Call preflight to get estimated costs
+	preflight, preflightErr := runPreflight(opts, symbol, side, params)
+
 	// Show order preview (not in JSON mode)
 	if !opts.jsonMode {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nOrder Preview:\n")
@@ -492,7 +636,22 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side string, params
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Stop:     $%s\n", params.stopPrice)
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Expires:  %s\n", expiration)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID: %s\n\n", orderID)
+
+		// Show preflight cost estimates if available
+		if preflightErr == nil && preflight != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Estimated Cost:\n")
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Order Value:  $%s\n", preflight.OrderValue)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Commission:   $%s\n", preflight.EstimatedCommission)
+			totalFees := sumFees(preflight.RegulatoryFees)
+			if totalFees != "0.00" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Reg Fees:     $%s\n", totalFees)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Total:        $%s\n", preflight.EstimatedCost)
+		} else if preflightErr != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Cost Estimate: unavailable (%s)\n", extractErrorMessage(preflightErr))
+		}
+
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Order ID: %s\n\n", orderID)
 	}
 
 	// Require confirmation unless --yes flag is set

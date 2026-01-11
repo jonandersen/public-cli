@@ -14,9 +14,24 @@ import (
 
 func TestOrderBuyCmd_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/userapigateway/trading/test-account/order", r.URL.Path)
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+		if strings.Contains(r.URL.Path, "preflight") {
+			// Preflight request
+			resp := PreflightResponse{
+				Instrument:          OrderInstrument{Symbol: "AAPL", Type: "EQUITY"},
+				EstimatedCommission: "0.00",
+				EstimatedCost:       "1755.00",
+				OrderValue:          "1755.00",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Order request
+		assert.Equal(t, "/userapigateway/trading/test-account/order", r.URL.Path)
 
 		var req map[string]any
 		err := json.NewDecoder(r.Body).Decode(&req)
@@ -1056,4 +1071,262 @@ func TestOrderBuyCmd_LimitOrderJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "LIMIT", result["orderType"])
 	assert.Equal(t, "175.50", result["limitPrice"])
+}
+
+func TestRunPreflight_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/userapigateway/trading/test-account/preflight/single-leg", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+		var req map[string]any
+		err := json.NewDecoder(r.Body).Decode(&req)
+		require.NoError(t, err)
+
+		// Verify preflight request fields
+		assert.Equal(t, "BUY", req["orderSide"])
+		assert.Equal(t, "MARKET", req["orderType"])
+		assert.Equal(t, "10", req["quantity"])
+
+		instrument := req["instrument"].(map[string]any)
+		assert.Equal(t, "AAPL", instrument["symbol"])
+		assert.Equal(t, "EQUITY", instrument["type"])
+
+		resp := PreflightResponse{
+			Instrument: OrderInstrument{
+				Symbol: "AAPL",
+				Type:   "EQUITY",
+			},
+			EstimatedCommission: "0.00",
+			RegulatoryFees: RegulatoryFees{
+				SECFee: "0.01",
+				TAFFee: "0.00",
+				ORFFee: "0.00",
+			},
+			EstimatedCost:          "1755.01",
+			BuyingPowerRequirement: "1755.01",
+			OrderValue:             "1755.00",
+			EstimatedQuantity:      "10",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	opts := orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := orderParams{
+		quantity: "10",
+	}
+
+	result, err := runPreflight(opts, "AAPL", "BUY", params)
+	require.NoError(t, err)
+	assert.Equal(t, "AAPL", result.Instrument.Symbol)
+	assert.Equal(t, "1755.01", result.EstimatedCost)
+	assert.Equal(t, "1755.00", result.OrderValue)
+	assert.Equal(t, "0.00", result.EstimatedCommission)
+	assert.Equal(t, "0.01", result.RegulatoryFees.SECFee)
+}
+
+func TestRunPreflight_LimitOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		err := json.NewDecoder(r.Body).Decode(&req)
+		require.NoError(t, err)
+
+		assert.Equal(t, "LIMIT", req["orderType"])
+		assert.Equal(t, "175.00", req["limitPrice"])
+
+		resp := PreflightResponse{
+			Instrument: OrderInstrument{
+				Symbol: "AAPL",
+				Type:   "EQUITY",
+			},
+			EstimatedCommission:    "0.00",
+			RegulatoryFees:         RegulatoryFees{},
+			EstimatedCost:          "1750.00",
+			BuyingPowerRequirement: "1750.00",
+			OrderValue:             "1750.00",
+			EstimatedQuantity:      "10",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	opts := orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := orderParams{
+		quantity:   "10",
+		limitPrice: "175.00",
+	}
+
+	result, err := runPreflight(opts, "AAPL", "BUY", params)
+	require.NoError(t, err)
+	assert.Equal(t, "1750.00", result.EstimatedCost)
+}
+
+func TestRunPreflight_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error": "invalid_symbol"}`))
+	}))
+	defer server.Close()
+
+	opts := orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := orderParams{
+		quantity: "10",
+	}
+
+	_, err := runPreflight(opts, "INVALID", "BUY", params)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "400")
+}
+
+func TestOrderBuyCmd_ShowsPreflightCost(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if strings.Contains(r.URL.Path, "preflight") {
+			// Preflight request
+			resp := PreflightResponse{
+				Instrument: OrderInstrument{
+					Symbol: "AAPL",
+					Type:   "EQUITY",
+				},
+				EstimatedCommission: "0.00",
+				RegulatoryFees: RegulatoryFees{
+					SECFee: "0.01",
+					TAFFee: "0.00",
+					ORFFee: "0.00",
+				},
+				EstimatedCost:          "1755.01",
+				BuyingPowerRequirement: "1755.01",
+				OrderValue:             "1755.00",
+				EstimatedQuantity:      "10",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		} else {
+			// Order request
+			var req map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			resp := map[string]any{"orderId": req["orderId"]}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		}
+	}))
+	defer server.Close()
+
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10", "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	// Should show estimated cost from preflight
+	assert.Contains(t, output, "1755.01")
+	// Should have made both preflight and order requests
+	assert.Equal(t, 2, requestCount)
+}
+
+func TestOrderCmd_PreviewShowsPreflightCost(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only preflight should be called (not order) since we don't confirm
+		assert.Contains(t, r.URL.Path, "preflight")
+
+		resp := PreflightResponse{
+			Instrument: OrderInstrument{
+				Symbol: "AAPL",
+				Type:   "EQUITY",
+			},
+			EstimatedCommission: "0.00",
+			RegulatoryFees: RegulatoryFees{
+				SECFee: "0.02",
+				TAFFee: "0.01",
+				ORFFee: "0.00",
+			},
+			EstimatedCost:          "1755.03",
+			BuyingPowerRequirement: "1755.03",
+			OrderValue:             "1755.00",
+			EstimatedQuantity:      "10",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	// Without --yes, should show preview with preflight cost
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10"})
+
+	err := cmd.Execute()
+	require.Error(t, err) // Fails without confirmation
+	assert.Contains(t, err.Error(), "confirmation")
+
+	output := out.String()
+	assert.Contains(t, output, "Order Preview")
+	assert.Contains(t, output, "1755.03") // Estimated cost
+	assert.Contains(t, output, "1755.00") // Order value
+}
+
+func TestOrderCmd_PreflightErrorShowsMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Preflight returns insufficient funds error
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":3003,"header":"Insufficient Buying Power","message":"A deposit of $2,548.67 is required to place this order."}`))
+	}))
+	defer server.Close()
+
+	cmd := newOrderBuyCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"AAPL", "--quantity", "10"})
+
+	err := cmd.Execute()
+	require.Error(t, err) // Fails without confirmation
+	assert.Contains(t, err.Error(), "confirmation")
+
+	output := out.String()
+	assert.Contains(t, output, "Order Preview")
+	assert.Contains(t, output, "Cost Estimate: unavailable")
+	assert.Contains(t, output, "A deposit of $2,548.67 is required to place this order.")
 }
