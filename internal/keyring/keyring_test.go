@@ -20,10 +20,10 @@ func TestEnvStore_GetFromEnvVar(t *testing.T) {
 	store := NewEnvStore(mock)
 
 	// Set env var
-	t.Setenv("PUB_SECRET_KEY", "env-secret-123")
+	t.Setenv(EnvSecretKey, "env-secret-123")
 
 	// Should get from env var, not underlying store
-	got, err := store.Get("pub", "secret_key")
+	got, err := store.Get(ServiceName, KeySecretKey)
 	if err != nil {
 		t.Fatalf("Get() error = %v, want nil", err)
 	}
@@ -34,11 +34,11 @@ func TestEnvStore_GetFromEnvVar(t *testing.T) {
 
 func TestEnvStore_FallbackToUnderlying(t *testing.T) {
 	mock := NewMockStore()
-	_ = mock.Set("pub", "secret_key", "keyring-secret")
+	_ = mock.Set(ServiceName, KeySecretKey, "keyring-secret")
 	store := NewEnvStore(mock)
 
 	// No env var set, should fall back to underlying store
-	got, err := store.Get("pub", "secret_key")
+	got, err := store.Get(ServiceName, KeySecretKey)
 	if err != nil {
 		t.Fatalf("Get() error = %v, want nil", err)
 	}
@@ -49,14 +49,14 @@ func TestEnvStore_FallbackToUnderlying(t *testing.T) {
 
 func TestEnvStore_EnvVarOnlyForSecretKey(t *testing.T) {
 	mock := NewMockStore()
-	_ = mock.Set("pub", "other_key", "other-value")
+	_ = mock.Set(ServiceName, "other_key", "other-value")
 	store := NewEnvStore(mock)
 
 	// Env var only affects secret_key lookups
-	t.Setenv("PUB_SECRET_KEY", "env-secret")
+	t.Setenv(EnvSecretKey, "env-secret")
 
 	// Other keys should not use env var
-	got, err := store.Get("pub", "other_key")
+	got, err := store.Get(ServiceName, "other_key")
 	if err != nil {
 		t.Fatalf("Get() error = %v, want nil", err)
 	}
@@ -69,13 +69,13 @@ func TestEnvStore_SetPassesThrough(t *testing.T) {
 	mock := NewMockStore()
 	store := NewEnvStore(mock)
 
-	err := store.Set("pub", "secret_key", "new-secret")
+	err := store.Set(ServiceName, KeySecretKey, "new-secret")
 	if err != nil {
 		t.Fatalf("Set() error = %v, want nil", err)
 	}
 
 	// Verify it was stored in underlying store
-	got, _ := mock.Get("pub", "secret_key")
+	got, _ := mock.Get(ServiceName, KeySecretKey)
 	if got != "new-secret" {
 		t.Errorf("underlying Get() = %q, want %q", got, "new-secret")
 	}
@@ -83,16 +83,16 @@ func TestEnvStore_SetPassesThrough(t *testing.T) {
 
 func TestEnvStore_DeletePassesThrough(t *testing.T) {
 	mock := NewMockStore()
-	_ = mock.Set("pub", "secret_key", "to-delete")
+	_ = mock.Set(ServiceName, KeySecretKey, "to-delete")
 	store := NewEnvStore(mock)
 
-	err := store.Delete("pub", "secret_key")
+	err := store.Delete(ServiceName, KeySecretKey)
 	if err != nil {
 		t.Fatalf("Delete() error = %v, want nil", err)
 	}
 
 	// Verify it was deleted from underlying store
-	_, err = mock.Get("pub", "secret_key")
+	_, err = mock.Get(ServiceName, KeySecretKey)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("underlying Get() after Delete() error = %v, want ErrNotFound", err)
 	}

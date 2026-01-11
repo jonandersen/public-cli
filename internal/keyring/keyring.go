@@ -8,6 +8,13 @@ import (
 )
 
 const (
+	// ServiceName is the keyring service name for storing secrets.
+	// Uses reverse domain notation for proper namespacing.
+	ServiceName = "com.public.pub"
+
+	// KeySecretKey is the keyring key for the API secret key.
+	KeySecretKey = "secret_key"
+
 	// EnvSecretKey is the environment variable name for the secret key.
 	// When set, it overrides keyring lookups for CI/headless environments.
 	EnvSecretKey = "PUB_SECRET_KEY"
@@ -71,7 +78,7 @@ func NewEnvStore(underlying Store) *EnvStore {
 // Get retrieves a secret, checking env var first for secret_key lookups.
 func (e *EnvStore) Get(service, key string) (string, error) {
 	// Check env var for secret_key lookups
-	if key == "secret_key" {
+	if key == KeySecretKey {
 		if envVal := os.Getenv(EnvSecretKey); envVal != "" {
 			return envVal, nil
 		}

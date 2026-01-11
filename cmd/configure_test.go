@@ -87,7 +87,7 @@ func TestConfigureCmd_Success(t *testing.T) {
 	assert.True(t, pwReader.readCalled)
 
 	// Verify secret was stored
-	secret, err := store.Get("pub", "secret_key")
+	secret, err := store.Get(keyring.ServiceName, keyring.KeySecretKey)
 	require.NoError(t, err)
 	assert.Equal(t, "test-secret-key", secret)
 

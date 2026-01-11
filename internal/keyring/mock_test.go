@@ -12,12 +12,12 @@ func TestMockStore_ImplementsInterface(t *testing.T) {
 func TestMockStore_SetAndGet(t *testing.T) {
 	store := NewMockStore()
 
-	err := store.Set("pub", "secret_key", "test-secret-123")
+	err := store.Set(ServiceName, KeySecretKey, "test-secret-123")
 	if err != nil {
 		t.Fatalf("Set() error = %v, want nil", err)
 	}
 
-	got, err := store.Get("pub", "secret_key")
+	got, err := store.Get(ServiceName, KeySecretKey)
 	if err != nil {
 		t.Fatalf("Get() error = %v, want nil", err)
 	}
@@ -38,14 +38,14 @@ func TestMockStore_GetNotFound(t *testing.T) {
 func TestMockStore_Delete(t *testing.T) {
 	store := NewMockStore()
 
-	_ = store.Set("pub", "secret_key", "to-delete")
+	_ = store.Set(ServiceName, KeySecretKey, "to-delete")
 
-	err := store.Delete("pub", "secret_key")
+	err := store.Delete(ServiceName, KeySecretKey)
 	if err != nil {
 		t.Fatalf("Delete() error = %v, want nil", err)
 	}
 
-	_, err = store.Get("pub", "secret_key")
+	_, err = store.Get(ServiceName, KeySecretKey)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("Get() after Delete() error = %v, want ErrNotFound", err)
 	}

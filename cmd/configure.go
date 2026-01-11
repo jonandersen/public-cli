@@ -114,7 +114,7 @@ func runConfigure(cmd *cobra.Command, opts configureOptions, accountUUID string)
 	}
 
 	// Store secret in keyring
-	if err := opts.store.Set("pub", "secret_key", secretKey); err != nil {
+	if err := opts.store.Set(keyring.ServiceName, keyring.KeySecretKey, secretKey); err != nil {
 		return fmt.Errorf("failed to store secret in keyring: %w", err)
 	}
 
