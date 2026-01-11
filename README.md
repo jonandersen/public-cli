@@ -4,11 +4,45 @@ A CLI for trading stocks, ETFs, options, and crypto via Public.com's API.
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew install jonandersen/tap/pub
+```
+
+### Download Binary
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/jonandersen/pub/releases).
+
+```bash
+# macOS (Apple Silicon)
+curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-darwin-arm64.tar.gz
+tar xzf pub-darwin-arm64.tar.gz
+sudo mv pub /usr/local/bin/
+
+# macOS (Intel)
+curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-darwin-amd64.tar.gz
+tar xzf pub-darwin-amd64.tar.gz
+sudo mv pub /usr/local/bin/
+
+# Linux (x86_64)
+curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-linux-amd64.tar.gz
+tar xzf pub-linux-amd64.tar.gz
+sudo mv pub /usr/local/bin/
+
+# Linux (ARM64)
+curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-linux-arm64.tar.gz
+tar xzf pub-linux-arm64.tar.gz
+sudo mv pub /usr/local/bin/
+```
+
+### Go Install
+
 ```bash
 go install github.com/jonandersen/pub@latest
 ```
 
-Or build from source:
+### Build from Source
 
 ```bash
 git clone https://github.com/jonandersen/pub.git
