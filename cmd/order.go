@@ -60,11 +60,12 @@ func newOrderCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "order",
 		Short: "Place and manage orders",
-		Long: `Place buy and sell orders for stocks and ETFs.
+		Long: `Place buy and sell orders for stocks and ETFs, and cancel open orders.
 
 Examples:
-  pub order buy AAPL --quantity 10     # Buy 10 shares of Apple
-  pub order sell AAPL --quantity 5     # Sell 5 shares of Apple`,
+  pub order buy AAPL --quantity 10                              # Buy 10 shares of Apple
+  pub order sell AAPL --quantity 5                              # Sell 5 shares of Apple
+  pub order cancel 912710f1-1a45-4ef0-88a7-cd513781933d --yes   # Cancel an order`,
 	}
 
 	return cmd
@@ -120,6 +121,86 @@ Examples:
 	cmd.SilenceUsage = true
 
 	return cmd
+}
+
+// newOrderCancelCmd creates the cancel subcommand with the given options.
+func newOrderCancelCmd(opts orderOptions) *cobra.Command {
+	var skipConfirm bool
+
+	cmd := &cobra.Command{
+		Use:   "cancel ORDER_ID",
+		Short: "Cancel an open order",
+		Long: `Cancel an open order by its order ID.
+
+Examples:
+  pub order cancel 912710f1-1a45-4ef0-88a7-cd513781933d        # Cancel order (requires confirmation)
+  pub order cancel 912710f1-1a45-4ef0-88a7-cd513781933d --yes  # Skip confirmation`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCancelOrder(cmd, opts, args[0], skipConfirm)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&skipConfirm, "yes", "y", false, "Skip confirmation prompt")
+	cmd.SilenceUsage = true
+
+	return cmd
+}
+
+func runCancelOrder(cmd *cobra.Command, opts orderOptions, orderID string, skipConfirm bool) error {
+	// Check trading is enabled
+	if !opts.tradingEnabled {
+		return config.ErrTradingDisabled
+	}
+
+	// Validate inputs
+	if opts.accountID == "" {
+		return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+	}
+
+	// Show cancel preview (not in JSON mode)
+	if !opts.jsonMode {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nCancel Order:\n")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID: %s\n\n", orderID)
+	}
+
+	// Require confirmation unless --yes flag is set
+	if !skipConfirm {
+		return fmt.Errorf("cancel requires confirmation (use --yes to confirm)")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/order/%s", opts.accountID, orderID)
+	resp, err := client.Delete(ctx, path)
+	if err != nil {
+		return fmt.Errorf("failed to cancel order: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	// Output result
+	if opts.jsonMode {
+		result := map[string]any{
+			"orderId": orderID,
+			"status":  "cancel_requested",
+		}
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cancel request submitted!\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID: %s\n", orderID)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nNote: Cancellation is asynchronous. Use 'pub order status %s' to verify.\n", orderID)
+
+	return nil
 }
 
 func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side, quantity string, skipConfirm bool) error {
@@ -314,7 +395,50 @@ Examples:
 	sellCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
 	sellCmd.SilenceUsage = true
 
+	// Cancel subcommand
+	var cancelSkipConfirm bool
+	cancelCmd := &cobra.Command{
+		Use:   "cancel ORDER_ID",
+		Short: "Cancel an open order",
+		Long: `Cancel an open order by its order ID.
+
+Examples:
+  pub order cancel 912710f1-1a45-4ef0-88a7-cd513781933d        # Cancel order (requires confirmation)
+  pub order cancel 912710f1-1a45-4ef0-88a7-cd513781933d --yes  # Skip confirmation`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := getAuthToken(store, cfg.APIBaseURL)
+			if err != nil {
+				return err
+			}
+
+			if accountID == "" {
+				accountID = cfg.AccountUUID
+			}
+
+			opts := orderOptions{
+				baseURL:        cfg.APIBaseURL,
+				authToken:      token,
+				accountID:      accountID,
+				tradingEnabled: cfg.TradingEnabled,
+				jsonMode:       GetJSONMode(),
+			}
+
+			return runCancelOrder(cmd, opts, args[0], cancelSkipConfirm)
+		},
+	}
+	cancelCmd.Flags().BoolVarP(&cancelSkipConfirm, "yes", "y", false, "Skip confirmation prompt")
+	cancelCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
+	cancelCmd.SilenceUsage = true
+
 	orderCmd.AddCommand(buyCmd)
 	orderCmd.AddCommand(sellCmd)
+	orderCmd.AddCommand(cancelCmd)
 	rootCmd.AddCommand(orderCmd)
 }

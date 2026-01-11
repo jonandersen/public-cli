@@ -287,3 +287,158 @@ func TestOrderCmd_SymbolUppercased(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "AAPL", receivedSymbol) // Should be uppercased
 }
+
+func TestOrderCancelCmd_Success(t *testing.T) {
+	orderID := "912710f1-1a45-4ef0-88a7-cd513781933d"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/userapigateway/trading/test-account/order/"+orderID, r.URL.Path)
+		assert.Equal(t, http.MethodDelete, r.Method)
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cmd := newOrderCancelCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{orderID, "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "Cancel request submitted")
+	assert.Contains(t, output, orderID)
+}
+
+func TestOrderCancelCmd_RequiresOrderID(t *testing.T) {
+	cmd := newOrderCancelCmd(orderOptions{
+		baseURL:        "http://localhost",
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "arg")
+}
+
+func TestOrderCancelCmd_RequiresConfirmation(t *testing.T) {
+	cmd := newOrderCancelCmd(orderOptions{
+		baseURL:        "http://localhost",
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"912710f1-1a45-4ef0-88a7-cd513781933d"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "confirmation")
+}
+
+func TestOrderCancelCmd_TradingDisabled(t *testing.T) {
+	cmd := newOrderCancelCmd(orderOptions{
+		baseURL:        "http://localhost",
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: false,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"912710f1-1a45-4ef0-88a7-cd513781933d", "--yes"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trading is disabled")
+}
+
+func TestOrderCancelCmd_RequiresAccount(t *testing.T) {
+	cmd := newOrderCancelCmd(orderOptions{
+		baseURL:        "http://localhost",
+		authToken:      "test-token",
+		accountID:      "",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"912710f1-1a45-4ef0-88a7-cd513781933d", "--yes"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "account")
+}
+
+func TestOrderCancelCmd_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error": "order_not_found"}`))
+	}))
+	defer server.Close()
+
+	cmd := newOrderCancelCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"912710f1-1a45-4ef0-88a7-cd513781933d", "--yes"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+}
+
+func TestOrderCancelCmd_JSON(t *testing.T) {
+	orderID := "912710f1-1a45-4ef0-88a7-cd513781933d"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cmd := newOrderCancelCmd(orderOptions{
+		baseURL:        server.URL,
+		authToken:      "test-token",
+		accountID:      "test-account",
+		tradingEnabled: true,
+		jsonMode:       true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{orderID, "--yes"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	var result map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, orderID, result["orderId"])
+	assert.Equal(t, "cancel_requested", result["status"])
+}
