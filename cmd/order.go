@@ -71,6 +71,26 @@ type OrderStatusResponse struct {
 	ClosedAt       string          `json:"closedAt,omitempty"`
 }
 
+// OpenOrder represents an open order from the portfolio API.
+type OpenOrder struct {
+	OrderID        string          `json:"orderId"`
+	Instrument     OrderInstrument `json:"instrument"`
+	Side           string          `json:"side"`
+	Type           string          `json:"type"`
+	Status         string          `json:"status"`
+	Quantity       string          `json:"quantity"`
+	FilledQuantity string          `json:"filledQuantity"`
+	LimitPrice     string          `json:"limitPrice,omitempty"`
+	StopPrice      string          `json:"stopPrice,omitempty"`
+	CreatedAt      string          `json:"createdAt"`
+}
+
+// OrderListResponse represents the portfolio API response containing orders.
+type OrderListResponse struct {
+	AccountID string      `json:"accountId"`
+	Orders    []OpenOrder `json:"orders"`
+}
+
 // newOrderCmd creates the parent order command.
 func newOrderCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -81,6 +101,7 @@ func newOrderCmd() *cobra.Command {
 Examples:
   pub order buy AAPL --quantity 10                              # Buy 10 shares of Apple
   pub order sell AAPL --quantity 5                              # Sell 5 shares of Apple
+  pub order list                                                # List open orders
   pub order status 912710f1-1a45-4ef0-88a7-cd513781933d         # Check order status
   pub order cancel 912710f1-1a45-4ef0-88a7-cd513781933d --yes   # Cancel an order`,
 	}
@@ -298,6 +319,87 @@ func runCancelOrder(cmd *cobra.Command, opts orderOptions, orderID string, skipC
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cancel request submitted!\n")
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID: %s\n", orderID)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nNote: Cancellation is asynchronous. Use 'pub order status %s' to verify.\n", orderID)
+
+	return nil
+}
+
+// newOrderListCmd creates the list subcommand with the given options.
+func newOrderListCmd(opts orderOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List open orders",
+		Long: `List all open orders for your account.
+
+Shows orders that are pending, new, or partially filled.
+
+Examples:
+  pub order list                # List open orders
+  pub order list --json         # Output as JSON`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runOrderList(cmd, opts)
+		},
+	}
+
+	cmd.SilenceUsage = true
+
+	return cmd
+}
+
+func runOrderList(cmd *cobra.Command, opts orderOptions) error {
+	// Validate inputs
+	if opts.accountID == "" {
+		return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/portfolio/v2", opts.accountID)
+	resp, err := client.Get(ctx, path)
+	if err != nil {
+		return fmt.Errorf("failed to fetch orders: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var orderList OrderListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&orderList); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Output result
+	if opts.jsonMode {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(orderList.Orders)
+	}
+
+	if len(orderList.Orders) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No open orders")
+		return nil
+	}
+
+	// Human-readable table output
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%-38s %-6s %-5s %-8s %-10s %-6s %s\n",
+		"ORDER ID", "SYMBOL", "SIDE", "TYPE", "STATUS", "QTY", "FILLED")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", strings.Repeat("-", 90))
+
+	for _, order := range orderList.Orders {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-38s %-6s %-5s %-8s %-10s %-6s %s\n",
+			order.OrderID,
+			order.Instrument.Symbol,
+			order.Side,
+			order.Type,
+			order.Status,
+			order.Quantity,
+			order.FilledQuantity)
+	}
 
 	return nil
 }
@@ -576,9 +678,51 @@ Examples:
 	statusCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
 	statusCmd.SilenceUsage = true
 
+	// List subcommand
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List open orders",
+		Long: `List all open orders for your account.
+
+Shows orders that are pending, new, or partially filled.
+
+Examples:
+  pub order list                # List open orders
+  pub order list --json         # Output as JSON`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := getAuthToken(store, cfg.APIBaseURL)
+			if err != nil {
+				return err
+			}
+
+			if accountID == "" {
+				accountID = cfg.AccountUUID
+			}
+
+			opts := orderOptions{
+				baseURL:   cfg.APIBaseURL,
+				authToken: token,
+				accountID: accountID,
+				jsonMode:  GetJSONMode(),
+			}
+
+			return runOrderList(cmd, opts)
+		},
+	}
+	listCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
+	listCmd.SilenceUsage = true
+
 	orderCmd.AddCommand(buyCmd)
 	orderCmd.AddCommand(sellCmd)
 	orderCmd.AddCommand(cancelCmd)
 	orderCmd.AddCommand(statusCmd)
+	orderCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(orderCmd)
 }

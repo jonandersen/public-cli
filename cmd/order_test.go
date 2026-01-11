@@ -659,3 +659,184 @@ func TestOrderStatusCmd_APIError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
+
+func TestOrderListCmd_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/userapigateway/trading/test-account/portfolio/v2", r.URL.Path)
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+		resp := map[string]any{
+			"accountId": "test-account",
+			"orders": []map[string]any{
+				{
+					"orderId": "order-1",
+					"instrument": map[string]any{
+						"symbol": "AAPL",
+						"type":   "EQUITY",
+					},
+					"side":           "BUY",
+					"type":           "LIMIT",
+					"status":         "NEW",
+					"quantity":       "10",
+					"filledQuantity": "0",
+					"limitPrice":     "175.00",
+					"createdAt":      "2025-01-10T10:30:00Z",
+				},
+				{
+					"orderId": "order-2",
+					"instrument": map[string]any{
+						"symbol": "TSLA",
+						"type":   "EQUITY",
+					},
+					"side":           "SELL",
+					"type":           "MARKET",
+					"status":         "PARTIALLY_FILLED",
+					"quantity":       "5",
+					"filledQuantity": "3",
+					"createdAt":      "2025-01-10T11:00:00Z",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderListCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "order-1")
+	assert.Contains(t, output, "AAPL")
+	assert.Contains(t, output, "BUY")
+	assert.Contains(t, output, "order-2")
+	assert.Contains(t, output, "TSLA")
+	assert.Contains(t, output, "SELL")
+}
+
+func TestOrderListCmd_NoOrders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId": "test-account",
+			"orders":    []map[string]any{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderListCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "No open orders")
+}
+
+func TestOrderListCmd_JSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId": "test-account",
+			"orders": []map[string]any{
+				{
+					"orderId": "order-1",
+					"instrument": map[string]any{
+						"symbol": "AAPL",
+						"type":   "EQUITY",
+					},
+					"side":           "BUY",
+					"type":           "LIMIT",
+					"status":         "NEW",
+					"quantity":       "10",
+					"filledQuantity": "0",
+					"limitPrice":     "175.00",
+					"createdAt":      "2025-01-10T10:30:00Z",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newOrderListCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	var result []map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "order-1", result[0]["orderId"])
+	assert.Equal(t, "BUY", result[0]["side"])
+}
+
+func TestOrderListCmd_RequiresAccount(t *testing.T) {
+	cmd := newOrderListCmd(orderOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "account")
+}
+
+func TestOrderListCmd_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error": "internal_error"}`))
+	}))
+	defer server.Close()
+
+	cmd := newOrderListCmd(orderOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
+}
