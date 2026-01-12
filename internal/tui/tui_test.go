@@ -304,8 +304,16 @@ func TestTradeModel(t *testing.T) {
 	tm := NewTradeModel()
 	assert.NotNil(t, tm)
 	view := tm.View()
-	assert.Contains(t, view, "Trade")
-	assert.Contains(t, view, "Coming soon")
+	assert.Contains(t, view, "Place Order")
+	assert.Contains(t, view, "Symbol")
+	assert.Contains(t, view, "Side")
+	assert.Contains(t, view, "BUY")
+	assert.Contains(t, view, "SELL")
+	assert.Contains(t, view, "Type")
+	assert.Contains(t, view, "MARKET")
+	assert.Contains(t, view, "LIMIT")
+	assert.Contains(t, view, "Quantity")
+	assert.Contains(t, view, "Est. Cost")
 }
 
 func TestTradeModelWithSymbol(t *testing.T) {
@@ -313,4 +321,77 @@ func TestTradeModelWithSymbol(t *testing.T) {
 	tm.SetSymbol("AAPL")
 	view := tm.View()
 	assert.Contains(t, view, "AAPL")
+	// When symbol is set, focus moves to quantity
+	assert.Equal(t, TradeFieldQuantity, tm.FocusedField)
+}
+
+func TestTradeModelSideToggle(t *testing.T) {
+	tm := NewTradeModel()
+	assert.Equal(t, TradeSideBuy, tm.Side)
+	// Toggle to sell
+	tm.Side = TradeSideSell
+	assert.Equal(t, "SELL", tm.Side.String())
+	// Toggle back to buy
+	tm.Side = TradeSideBuy
+	assert.Equal(t, "BUY", tm.Side.String())
+}
+
+func TestTradeModelOrderType(t *testing.T) {
+	tm := NewTradeModel()
+	assert.Equal(t, TradeOrderTypeMarket, tm.OrderType)
+	// Toggle to limit
+	tm.OrderType = TradeOrderTypeLimit
+	assert.Equal(t, "LIMIT", tm.OrderType.String())
+	view := tm.View()
+	// Limit price field should appear for limit orders
+	assert.Contains(t, view, "Limit Price")
+}
+
+func TestTradeModelFormValidation(t *testing.T) {
+	tm := NewTradeModel()
+	// Empty form should be invalid
+	assert.False(t, tm.isFormValid())
+	// Set symbol
+	tm.SymbolInput.SetValue("AAPL")
+	assert.False(t, tm.isFormValid())
+	// Set quantity
+	tm.QuantityInput.SetValue("10")
+	assert.True(t, tm.isFormValid())
+	// Limit order requires price
+	tm.OrderType = TradeOrderTypeLimit
+	assert.False(t, tm.isFormValid())
+	// Set limit price
+	tm.LimitPriceInput.SetValue("150.00")
+	assert.True(t, tm.isFormValid())
+}
+
+func TestTradeModelEstimatedCost(t *testing.T) {
+	tm := NewTradeModel()
+	// No quote, no quantity - should return "-"
+	assert.Equal(t, "-", tm.estimatedCost())
+	// Set quantity but no price
+	tm.QuantityInput.SetValue("10")
+	assert.Equal(t, "-", tm.estimatedCost())
+	// For limit orders, use limit price
+	tm.OrderType = TradeOrderTypeLimit
+	tm.LimitPriceInput.SetValue("150.00")
+	assert.Equal(t, "$1500.00", tm.estimatedCost())
+}
+
+func TestTradeModelIsTextFieldFocused(t *testing.T) {
+	tm := NewTradeModel()
+	// Symbol field is focused by default
+	assert.True(t, tm.IsTextFieldFocused())
+	// Side is not a text field
+	tm.FocusedField = TradeFieldSide
+	assert.False(t, tm.IsTextFieldFocused())
+	// OrderType is not a text field
+	tm.FocusedField = TradeFieldOrderType
+	assert.False(t, tm.IsTextFieldFocused())
+	// Quantity is a text field
+	tm.FocusedField = TradeFieldQuantity
+	assert.True(t, tm.IsTextFieldFocused())
+	// LimitPrice is a text field
+	tm.FocusedField = TradeFieldLimitPrice
+	assert.True(t, tm.IsTextFieldFocused())
 }

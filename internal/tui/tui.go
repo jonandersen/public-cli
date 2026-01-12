@@ -107,6 +107,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Handle trade view - it manages its own input
+		if m.currentView == ViewTrade {
+			// When not focused on a text field, allow global keys
+			if !m.trade.IsTextFieldFocused() && m.trade.Mode == TradeModeForm && m.trade.State != TradeStateSuccess {
+				switch msg.String() {
+				case "q", "ctrl+c":
+					return m, tea.Quit
+				case "1":
+					m.currentView = ViewPortfolio
+					return m, nil
+				case "2":
+					m.currentView = ViewWatchlist
+					if m.watchlist.State == WatchlistStateLoading && len(m.watchlist.Symbols) > 0 {
+						cmds = append(cmds, FetchWatchlistQuotes(m.watchlist.Symbols, m.cfg, m.store))
+					}
+					return m, tea.Batch(cmds...)
+				case "3":
+					m.currentView = ViewOrders
+					if m.orders.State == OrdersStateLoading {
+						cmds = append(cmds, FetchOrders(m.cfg, m.store))
+					}
+					return m, tea.Batch(cmds...)
+				}
+			}
+			// Pass input to trade model
+			m.trade, cmd = m.trade.Update(msg, m.cfg, m.store)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		// Handle global keys
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -148,6 +180,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if symbol != "" {
 					m.trade.SetSymbol(symbol)
 					m.currentView = ViewTrade
+					// Fetch quote for the symbol
+					cmds = append(cmds, FetchTradeQuote(symbol, m.cfg, m.store))
 				}
 			}
 		default:
@@ -192,6 +226,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case OrdersLoadedMsg, OrdersErrorMsg, OrderCancelledMsg, OrderCancelErrorMsg:
 		m.orders, cmd, _ = m.orders.Update(msg, m.cfg, m.store)
+		cmds = append(cmds, cmd)
+
+	case TradeQuoteMsg, TradeQuoteErrorMsg, TradeOrderPlacedMsg, TradeOrderErrorMsg:
+		m.trade, cmd = m.trade.Update(msg, m.cfg, m.store)
 		cmds = append(cmds, cmd)
 
 	case TickMsg:
@@ -344,6 +382,30 @@ func (m Model) renderFooter() string {
 			keys = append(keys, struct{ key, desc string }{"c", "cancel order"})
 			keys = append(keys, struct{ key, desc string }{"r", "refresh"})
 		case OrdersModeCanceling:
+			keys = []struct{ key, desc string }{
+				{"y", "confirm"},
+				{"n", "cancel"},
+			}
+		}
+	case ViewTrade:
+		switch m.trade.Mode {
+		case TradeModeForm:
+			if m.trade.State == TradeStateSuccess {
+				keys = []struct{ key, desc string }{
+					{"ctrl+n", "new order"},
+				}
+			} else if m.trade.IsTextFieldFocused() {
+				keys = []struct{ key, desc string }{
+					{"tab", "next field"},
+					{"enter", "submit"},
+					{"esc", "exit field"},
+				}
+			} else {
+				keys = append(keys, struct{ key, desc string }{"tab", "next field"})
+				keys = append(keys, struct{ key, desc string }{"space", "toggle"})
+				keys = append(keys, struct{ key, desc string }{"enter", "submit"})
+			}
+		case TradeModeConfirm:
 			keys = []struct{ key, desc string }{
 				{"y", "confirm"},
 				{"n", "cancel"},
