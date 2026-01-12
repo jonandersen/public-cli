@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -29,6 +30,18 @@ func NewClient(baseURL, authToken string) *Client {
 
 // Get performs a GET request to the specified path.
 func (c *Client) Get(ctx context.Context, path string) (*http.Response, error) {
+	return c.do(ctx, http.MethodGet, path, nil)
+}
+
+// GetWithParams performs a GET request to the specified path with query parameters.
+func (c *Client) GetWithParams(ctx context.Context, path string, params map[string]string) (*http.Response, error) {
+	if len(params) > 0 {
+		query := url.Values{}
+		for k, v := range params {
+			query.Set(k, v)
+		}
+		path = path + "?" + query.Encode()
+	}
 	return c.do(ctx, http.MethodGet, path, nil)
 }
 
