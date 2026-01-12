@@ -114,3 +114,17 @@ type Order struct {
 type OrdersResponse struct {
 	Orders []Order `json:"orders"`
 }
+
+// Account represents a Public.com account.
+type Account struct {
+	AccountID            string `json:"accountId"`
+	AccountType          string `json:"accountType"`
+	OptionsLevel         string `json:"optionsLevel"`
+	BrokerageAccountType string `json:"brokerageAccountType"`
+	TradePermissions     string `json:"tradePermissions"`
+}
+
+// AccountsResponse represents the API response for listing accounts.
+type AccountsResponse struct {
+	Accounts []Account `json:"accounts"`
+}

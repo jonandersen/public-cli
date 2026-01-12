@@ -49,3 +49,18 @@ type OrderCancelErrorMsg struct {
 
 // TickMsg is sent periodically for auto-refresh.
 type TickMsg time.Time
+
+// AccountsLoadedMsg is sent when accounts are loaded successfully.
+type AccountsLoadedMsg struct {
+	Accounts []Account
+}
+
+// AccountsErrorMsg is sent when account loading fails.
+type AccountsErrorMsg struct {
+	Err error
+}
+
+// AccountChangedMsg is sent when the user switches accounts.
+type AccountChangedMsg struct {
+	AccountID string
+}

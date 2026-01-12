@@ -1,13 +1,17 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jonandersen/pub/internal/api"
 	"github.com/jonandersen/pub/internal/config"
 	"github.com/jonandersen/pub/internal/keyring"
 )
@@ -42,26 +46,34 @@ type Model struct {
 
 	// Refresh settings
 	refreshInterval time.Duration
+
+	// Account switcher
+	accounts          []Account
+	selectedAccountID string
+	accountPickerOpen bool
+	accountCursor     int
 }
 
 // New creates a new TUI model.
 func New(cfg *config.Config, uiCfg *UIConfig, store keyring.Store) Model {
 	return Model{
-		currentView:     ViewPortfolio,
-		cfg:             cfg,
-		uiCfg:           uiCfg,
-		store:           store,
-		portfolio:       NewPortfolioModel(),
-		watchlist:       NewWatchlistModel(uiCfg.Watchlist),
-		orders:          NewOrdersModel(),
-		trade:           NewTradeModel(),
-		refreshInterval: 30 * time.Second,
+		currentView:       ViewPortfolio,
+		cfg:               cfg,
+		uiCfg:             uiCfg,
+		store:             store,
+		portfolio:         NewPortfolioModel(),
+		watchlist:         NewWatchlistModel(uiCfg.Watchlist),
+		orders:            NewOrdersModel(),
+		trade:             NewTradeModel(),
+		refreshInterval:   30 * time.Second,
+		selectedAccountID: cfg.AccountUUID,
 	}
 }
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
+		FetchAccounts(m.cfg, m.store),
 		FetchPortfolio(m.cfg, m.store),
 		m.tickCmd(),
 	}
@@ -85,6 +97,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle account picker first - it takes priority
+		if m.accountPickerOpen {
+			switch msg.String() {
+			case "esc", "a":
+				m.accountPickerOpen = false
+				return m, nil
+			case "up", "k":
+				if m.accountCursor > 0 {
+					m.accountCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.accountCursor < len(m.accounts)-1 {
+					m.accountCursor++
+				}
+				return m, nil
+			case "enter":
+				if len(m.accounts) > 0 && m.accountCursor < len(m.accounts) {
+					newAccountID := m.accounts[m.accountCursor].AccountID
+					if newAccountID != m.selectedAccountID {
+						m.selectedAccountID = newAccountID
+						m.cfg.AccountUUID = newAccountID
+						m.accountPickerOpen = false
+						// Refresh data for the new account
+						return m, m.refreshCurrentView()
+					}
+				}
+				m.accountPickerOpen = false
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
 		// Handle watchlist input modes first - they consume all keys
 		if m.currentView == ViewWatchlist && m.watchlist.Mode != WatchlistModeNormal {
 			m.watchlist, cmd, _ = m.watchlist.Update(msg, m.uiCfg)
@@ -146,6 +193,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			// Esc doesn't quit in normal mode
 			return m, nil
+		case "a":
+			// On watchlist view, 'a' is for adding symbols, not account picker
+			// Let watchlist handle it in the default case below
+			if m.currentView == ViewWatchlist && m.watchlist.Mode == WatchlistModeNormal {
+				// Fall through to default case
+			} else if len(m.accounts) > 0 {
+				// Open account picker if we have accounts
+				m.accountPickerOpen = true
+				// Position cursor on current account
+				m.accountCursor = 0
+				for i, acc := range m.accounts {
+					if acc.AccountID == m.selectedAccountID {
+						m.accountCursor = i
+						break
+					}
+				}
+				return m, nil
+			}
 		case "1":
 			m.currentView = ViewPortfolio
 		case "2":
@@ -232,6 +297,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.trade, cmd = m.trade.Update(msg, m.cfg, m.store)
 		cmds = append(cmds, cmd)
 
+	case AccountsLoadedMsg:
+		m.accounts = msg.Accounts
+		// If no account is selected but we have accounts, select the first one
+		if m.selectedAccountID == "" && len(m.accounts) > 0 {
+			m.selectedAccountID = m.accounts[0].AccountID
+			m.cfg.AccountUUID = m.selectedAccountID
+		}
+
+	case AccountsErrorMsg:
+		// Silently ignore account loading errors - we still have the default account
+		_ = msg.Err
+
 	case TickMsg:
 		// Auto-refresh based on current view
 		if m.currentView == ViewPortfolio && m.portfolio.State != PortfolioStateLoading {
@@ -265,7 +342,14 @@ func (m Model) View() string {
 
 	header := m.renderHeader()
 	footer := m.renderFooter()
-	content := m.renderContent()
+
+	// Show account picker in content area if open
+	var content string
+	if m.accountPickerOpen {
+		content = m.renderAccountPicker()
+	} else {
+		content = m.renderContent()
+	}
 
 	// Calculate content height
 	headerHeight := lipgloss.Height(header)
@@ -312,12 +396,55 @@ func (m Model) renderHeader() string {
 	}
 
 	tabBar := strings.Join(tabStrs, " ")
+
+	// Build account indicator
+	accountIndicator := ""
+	if m.selectedAccountID != "" {
+		// Find the account type for display
+		accType := ""
+		for _, acc := range m.accounts {
+			if acc.AccountID == m.selectedAccountID {
+				accType = acc.BrokerageAccountType
+				if accType == "" {
+					accType = acc.AccountType
+				}
+				break
+			}
+		}
+		// Truncate account ID for display
+		displayID := m.selectedAccountID
+		if len(displayID) > 8 {
+			displayID = displayID[:8] + "..."
+		}
+		if accType != "" {
+			accountIndicator = fmt.Sprintf("[a] %s (%s)", displayID, accType)
+		} else {
+			accountIndicator = fmt.Sprintf("[a] %s", displayID)
+		}
+	} else if len(m.accounts) > 0 {
+		accountIndicator = "[a] Select account"
+	}
+
+	accountStyle := lipgloss.NewStyle().Padding(0, 1).Foreground(ColorMuted)
+	if m.accountPickerOpen {
+		accountStyle = accountStyle.Foreground(ColorPrimary).Bold(true)
+	}
+	accountStr := accountStyle.Render(accountIndicator)
+
 	headerContent := title + "  " + tabBar
 
-	// Pad to full width
-	padding := m.width - lipgloss.Width(headerContent)
+	// Calculate available space for account indicator on the right
+	leftWidth := lipgloss.Width(headerContent)
+	rightWidth := lipgloss.Width(accountStr)
+	padding := m.width - leftWidth - rightWidth
 	if padding > 0 {
-		headerContent += strings.Repeat(" ", padding)
+		headerContent += strings.Repeat(" ", padding) + accountStr
+	} else {
+		// Not enough space, just pad to full width
+		padding = m.width - leftWidth
+		if padding > 0 {
+			headerContent += strings.Repeat(" ", padding)
+		}
 	}
 
 	return lipgloss.NewStyle().
@@ -347,9 +474,37 @@ func (m Model) renderFooter() string {
 	keys := []struct {
 		key  string
 		desc string
-	}{
-		{"1-4", "switch view"},
+	}{}
+
+	// Account picker has its own keys
+	if m.accountPickerOpen {
+		keys = []struct{ key, desc string }{
+			{"↑/↓", "navigate"},
+			{"enter", "select"},
+			{"esc", "close"},
+			{"q", "quit"},
+		}
+
+		var parts []string
+		for _, k := range keys {
+			parts = append(parts, KeyStyle.Render(k.key)+" "+DescStyle.Render(k.desc))
+		}
+
+		footerContent := strings.Join(parts, "  •  ")
+
+		// Pad to full width
+		padding := m.width - lipgloss.Width(footerContent)
+		if padding > 0 {
+			footerContent += strings.Repeat(" ", padding)
+		}
+
+		return lipgloss.NewStyle().
+			Background(ColorBackground).
+			Width(m.width).
+			Render(footerContent)
 	}
+
+	keys = append(keys, struct{ key, desc string }{"1-4", "switch view"})
 
 	// Add view-specific keys
 	switch m.currentView {
@@ -432,4 +587,100 @@ func (m Model) renderFooter() string {
 		Background(ColorBackground).
 		Width(m.width).
 		Render(footerContent)
+}
+
+// refreshCurrentView returns a command to refresh data for the current view.
+func (m Model) refreshCurrentView() tea.Cmd {
+	var cmds []tea.Cmd
+
+	// Always refresh portfolio for account changes
+	m.portfolio.State = PortfolioStateLoading
+	cmds = append(cmds, FetchPortfolio(m.cfg, m.store))
+
+	// Refresh orders too since they're account-specific
+	m.orders.State = OrdersStateLoading
+	cmds = append(cmds, FetchOrders(m.cfg, m.store))
+
+	return tea.Batch(cmds...)
+}
+
+// renderAccountPicker renders the account picker in the content area.
+func (m Model) renderAccountPicker() string {
+	var b strings.Builder
+
+	b.WriteString(SummaryStyle.Render("Select Account"))
+	b.WriteString("\n\n")
+
+	for i, acc := range m.accounts {
+		// Format account display
+		accType := acc.AccountType
+		if acc.BrokerageAccountType != "" {
+			accType = acc.BrokerageAccountType
+		}
+
+		line := fmt.Sprintf("%-40s %s", acc.AccountID, accType)
+
+		if i == m.accountCursor {
+			// Selected row
+			prefix := "  "
+			if acc.AccountID == m.selectedAccountID {
+				prefix = "✓ "
+			}
+			b.WriteString(lipgloss.NewStyle().
+				Foreground(ColorSelectedFg).
+				Background(ColorSelected).
+				Bold(true).
+				Render(prefix + line))
+		} else {
+			// Normal row
+			if acc.AccountID == m.selectedAccountID {
+				b.WriteString(GreenStyle.Render("✓ " + line))
+			} else {
+				b.WriteString(LabelStyle.Render("  " + line))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(KeyStyle.Render("↑/↓"))
+	b.WriteString(LabelStyle.Render(" navigate  "))
+	b.WriteString(KeyStyle.Render("enter"))
+	b.WriteString(LabelStyle.Render(" select  "))
+	b.WriteString(KeyStyle.Render("esc"))
+	b.WriteString(LabelStyle.Render(" close"))
+
+	return ContentStyle.Render(b.String())
+}
+
+// FetchAccounts returns a command that fetches the list of accounts.
+func FetchAccounts(cfg *config.Config, store keyring.Store) tea.Cmd {
+	return func() tea.Msg {
+		token, err := getAuthToken(store, cfg.APIBaseURL)
+		if err != nil {
+			return AccountsErrorMsg{Err: err}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		client := api.NewClient(cfg.APIBaseURL, token)
+		resp, err := client.Get(ctx, "/userapigateway/trading/account")
+		if err != nil {
+			return AccountsErrorMsg{Err: fmt.Errorf("failed to fetch accounts: %w", err)}
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
+			return AccountsErrorMsg{Err: fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))}
+		}
+
+		var accountsResp AccountsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&accountsResp); err != nil {
+			return AccountsErrorMsg{Err: fmt.Errorf("failed to decode response: %w", err)}
+		}
+
+		return AccountsLoadedMsg(accountsResp)
+	}
 }
