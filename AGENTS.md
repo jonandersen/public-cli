@@ -83,16 +83,67 @@ pub/
 │   ├── quote.go           # Quote commands
 │   ├── order.go           # Order commands
 │   ├── options.go         # Options commands
-│   └── configure.go       # First-time setup
+│   ├── configure.go       # First-time setup
+│   └── ui.go              # TUI command (thin wrapper)
 ├── internal/
 │   ├── api/               # HTTP client with auth
 │   ├── auth/              # Token exchange logic
 │   ├── config/            # Config file management
 │   ├── keyring/           # Secret storage abstraction
-│   └── output/            # Table/JSON formatting
+│   ├── output/            # Table/JSON formatting
+│   └── tui/               # Terminal UI (bubbletea)
 ├── main.go                # Entry point
 └── main_test.go           # Integration tests
 ```
+
+## TUI Architecture
+
+The TUI (`pub ui`) uses [bubbletea](https://github.com/charmbracelet/bubbletea) with a multi-model pattern:
+
+```
+internal/tui/
+├── tui.go           # Root model - coordinates views, handles global keys
+├── styles.go        # Shared lipgloss styles and colors
+├── messages.go      # Async message types (PortfolioLoadedMsg, etc.)
+├── types.go         # Data structures (Portfolio, Quote, Position)
+├── config.go        # UIConfig - watchlist persistence
+├── helpers.go       # formatGainLoss(), formatVolume(), getAuthToken()
+├── portfolio.go     # Portfolio view with positions table
+├── watchlist.go     # Watchlist view with add/delete modes
+├── orders.go        # Orders view (placeholder)
+└── trade.go         # Trade view (placeholder)
+```
+
+**Key patterns:**
+
+1. **Root Model as Coordinator**: The main `Model` in `tui.go` handles:
+   - Global key bindings (1-4 for view switching, q to quit)
+   - Window resize events
+   - Routing messages to child views
+   - Header/footer rendering
+
+2. **Child View Models**: Each view (portfolio, watchlist, etc.) has:
+   - `NewXxxModel()` - Constructor
+   - `Update(msg)` - Handle messages and keys
+   - `View()` - Render the view
+   - View-specific state (loading, loaded, error)
+
+3. **Async Operations**: Use tea.Cmd functions that return messages:
+   - `FetchPortfolio()` returns `PortfolioLoadedMsg` or `PortfolioErrorMsg`
+   - `FetchWatchlistQuotes()` returns `WatchlistQuotesMsg` or `WatchlistErrorMsg`
+
+4. **Shared Styles**: All colors and styles defined in `styles.go`:
+   - `ColorPrimary`, `ColorMuted`, `ColorGreen`, `ColorRed`
+   - `HeaderStyle`, `LabelStyle`, `ValueStyle`, etc.
+
+**Adding a new view:**
+
+1. Create `internal/tui/newview.go` with model struct
+2. Add `NewXxxModel()`, `Update()`, `View()` methods
+3. Add view constant to `tui.go` (e.g., `ViewNewView`)
+4. Add child model to root `Model` struct
+5. Update `renderContent()` switch statement
+6. Add key binding in `Update()` for view switching
 
 ## Key Dependencies
 
