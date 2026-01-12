@@ -138,16 +138,18 @@ func (m *PortfolioModel) View() string {
 
 		p := m.Data
 
-		// Calculate total value from equity
-		var totalValue, cashValue string
+		// Calculate total value by summing all equity components
+		var totalValueFloat float64
+		var cashValue string
 		for _, eq := range p.Equity {
-			switch eq.Type {
-			case "TOTAL":
-				totalValue = eq.Value
-			case "CASH":
+			if val, err := strconv.ParseFloat(eq.Value, 64); err == nil {
+				totalValueFloat += val
+			}
+			if eq.Type == "CASH" {
 				cashValue = eq.Value
 			}
 		}
+		totalValue := fmt.Sprintf("%.2f", totalValueFloat)
 
 		// Calculate day P/L from positions
 		var totalDayGain float64
