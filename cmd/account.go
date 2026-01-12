@@ -22,6 +22,7 @@ type accountOptions struct {
 	authToken        string
 	jsonMode         bool
 	defaultAccountID string
+	tokenRefresher   api.TokenRefresher
 }
 
 // Account represents a Public.com account.
@@ -130,7 +131,7 @@ func runAccountList(cmd *cobra.Command, opts accountOptions) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := api.NewClient(opts.baseURL, opts.authToken)
+	client := api.NewClient(opts.baseURL, opts.authToken).WithTokenRefresher(opts.tokenRefresher)
 	resp, err := client.Get(ctx, "/userapigateway/trading/account")
 	if err != nil {
 		return fmt.Errorf("failed to fetch accounts: %w", err)
@@ -204,7 +205,7 @@ func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) err
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := api.NewClient(opts.baseURL, opts.authToken)
+	client := api.NewClient(opts.baseURL, opts.authToken).WithTokenRefresher(opts.tokenRefresher)
 	path := fmt.Sprintf("/userapigateway/trading/%s/portfolio/v2", accountID)
 	resp, err := client.Get(ctx, path)
 	if err != nil {
@@ -296,7 +297,8 @@ func formatGainLoss(value string) string {
 }
 
 // getAuthToken retrieves the secret key and exchanges it for an access token.
-func getAuthToken(store keyring.Store, baseURL string) (string, error) {
+// If forceRefresh is true, it bypasses the cache and gets a fresh token.
+func getAuthToken(store keyring.Store, baseURL string, forceRefresh bool) (string, error) {
 	secret, err := store.Get(keyring.ServiceName, keyring.KeySecretKey)
 	if err != nil {
 		if err == keyring.ErrNotFound {
@@ -308,7 +310,7 @@ func getAuthToken(store keyring.Store, baseURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	token, err := auth.ExchangeToken(ctx, baseURL, secret)
+	token, err := auth.GetTokenWithRefresh(ctx, auth.TokenCachePath(), baseURL, secret, forceRefresh)
 	if err != nil {
 		return "", fmt.Errorf("failed to authenticate: %w", err)
 	}
@@ -337,7 +339,7 @@ Examples:
 
 			// Get auth token
 			store := keyring.NewEnvStore(keyring.NewSystemStore())
-			token, err := getAuthToken(store, cfg.APIBaseURL)
+			token, err := getAuthToken(store, cfg.APIBaseURL, false)
 			if err != nil {
 				return err
 			}
@@ -346,6 +348,10 @@ Examples:
 			opts.authToken = token
 			opts.jsonMode = GetJSONMode()
 			opts.defaultAccountID = cfg.AccountUUID
+			// Create token refresher for 401 retry
+			opts.tokenRefresher = func() (string, error) {
+				return getAuthToken(store, cfg.APIBaseURL, true)
+			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

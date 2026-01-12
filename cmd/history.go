@@ -221,7 +221,7 @@ Examples:
 			}
 
 			store := keyring.NewEnvStore(keyring.NewSystemStore())
-			token, err := getAuthToken(store, cfg.APIBaseURL)
+			token, err := getAuthToken(store, cfg.APIBaseURL, false)
 			if err != nil {
 				return err
 			}

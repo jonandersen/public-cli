@@ -260,7 +260,7 @@ func FetchOrders(cfg *config.Config, store keyring.Store) tea.Cmd {
 			return OrdersErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL)
+		token, err := getAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return OrdersErrorMsg{Err: err}
 		}
@@ -297,7 +297,7 @@ func CancelOrder(orderID string, cfg *config.Config, store keyring.Store) tea.Cm
 			return OrderCancelErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL)
+		token, err := getAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return OrderCancelErrorMsg{Err: err}
 		}

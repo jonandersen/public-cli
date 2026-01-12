@@ -683,7 +683,7 @@ func FetchTradeQuote(symbol string, cfg *config.Config, store keyring.Store) tea
 			return TradeQuoteErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL)
+		token, err := getAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return TradeQuoteErrorMsg{Err: err}
 		}
@@ -743,7 +743,7 @@ func PlaceOrder(m *TradeModel, cfg *config.Config, store keyring.Store) tea.Cmd 
 			return TradeOrderErrorMsg{Err: fmt.Errorf("trading is disabled - enable in config")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL)
+		token, err := getAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return TradeOrderErrorMsg{Err: err}
 		}

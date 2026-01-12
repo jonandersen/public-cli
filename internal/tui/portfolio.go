@@ -206,7 +206,7 @@ func FetchPortfolio(cfg *config.Config, store keyring.Store) tea.Cmd {
 			return PortfolioErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL)
+		token, err := getAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return PortfolioErrorMsg{Err: err}
 		}

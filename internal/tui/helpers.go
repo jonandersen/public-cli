@@ -69,7 +69,8 @@ func formatVolume(vol string) string {
 }
 
 // getAuthToken retrieves an auth token from the keyring.
-func getAuthToken(store keyring.Store, baseURL string) (string, error) {
+// If forceRefresh is true, it bypasses the cache and gets a fresh token.
+func getAuthToken(store keyring.Store, baseURL string, forceRefresh bool) (string, error) {
 	secret, err := store.Get(keyring.ServiceName, keyring.KeySecretKey)
 	if err != nil {
 		if err == keyring.ErrNotFound {
@@ -81,7 +82,7 @@ func getAuthToken(store keyring.Store, baseURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	token, err := auth.ExchangeToken(ctx, baseURL, secret)
+	token, err := auth.GetTokenWithRefresh(ctx, auth.TokenCachePath(), baseURL, secret, forceRefresh)
 	if err != nil {
 		return "", fmt.Errorf("failed to authenticate: %w", err)
 	}
