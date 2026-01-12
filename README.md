@@ -12,41 +12,35 @@ brew install jonandersen/tap/pub
 
 ### Download Binary
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/jonandersen/pub/releases).
+Download the latest release for your platform from [GitHub Releases](https://github.com/jonandersen/public-cli/releases), or use the GitHub CLI:
 
 ```bash
 # macOS (Apple Silicon)
-curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-darwin-arm64.tar.gz
-tar xzf pub-darwin-arm64.tar.gz
+gh release download --repo jonandersen/public-cli --pattern '*darwin_arm64.tar.gz'
+tar xzf pub_*_darwin_arm64.tar.gz
 sudo mv pub /usr/local/bin/
 
 # macOS (Intel)
-curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-darwin-amd64.tar.gz
-tar xzf pub-darwin-amd64.tar.gz
+gh release download --repo jonandersen/public-cli --pattern '*darwin_amd64.tar.gz'
+tar xzf pub_*_darwin_amd64.tar.gz
 sudo mv pub /usr/local/bin/
 
 # Linux (x86_64)
-curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-linux-amd64.tar.gz
-tar xzf pub-linux-amd64.tar.gz
+gh release download --repo jonandersen/public-cli --pattern '*linux_amd64.tar.gz'
+tar xzf pub_*_linux_amd64.tar.gz
 sudo mv pub /usr/local/bin/
 
 # Linux (ARM64)
-curl -LO https://github.com/jonandersen/pub/releases/latest/download/pub-linux-arm64.tar.gz
-tar xzf pub-linux-arm64.tar.gz
+gh release download --repo jonandersen/public-cli --pattern '*linux_arm64.tar.gz'
+tar xzf pub_*_linux_arm64.tar.gz
 sudo mv pub /usr/local/bin/
-```
-
-### Go Install
-
-```bash
-go install github.com/jonandersen/pub@latest
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/jonandersen/pub.git
-cd pub
+git clone https://github.com/jonandersen/public-cli.git
+cd public-cli
 make build
 ```
 
