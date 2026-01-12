@@ -205,11 +205,12 @@ func (m *TradeModel) Update(msg tea.Msg, cfg *config.Config, store keyring.Store
 		// Handle form mode
 		switch msg.String() {
 		case "esc":
-			// Escape blurs text fields so number keys work for navigation
+			// Escape from text field goes to toolbar navigation
 			if m.IsTextFieldFocused() {
 				m.blurAll()
 				m.FocusedField = TradeFieldSide
-				return m, nil
+				// Signal parent to focus toolbar
+				return m, func() tea.Msg { return ToolbarFocusMsg{} }
 			}
 			return m, nil
 

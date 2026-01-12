@@ -64,3 +64,6 @@ type AccountsErrorMsg struct {
 type AccountChangedMsg struct {
 	AccountID string
 }
+
+// ToolbarFocusMsg is sent when a child view requests toolbar focus.
+type ToolbarFocusMsg struct{}

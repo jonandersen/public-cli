@@ -52,6 +52,9 @@ type Model struct {
 	selectedAccountID string
 	accountPickerOpen bool
 	accountCursor     int
+
+	// Toolbar navigation
+	toolbarFocused bool
 }
 
 // New creates a new TUI model.
@@ -132,6 +135,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle toolbar navigation - takes priority when toolbar is focused
+		if m.toolbarFocused {
+			switch msg.String() {
+			case "left", "h":
+				// Move to previous tab
+				if m.currentView > ViewPortfolio {
+					m.currentView--
+				} else {
+					m.currentView = ViewTrade // Wrap around
+				}
+				return m, nil
+			case "right", "l":
+				// Move to next tab
+				if m.currentView < ViewTrade {
+					m.currentView++
+				} else {
+					m.currentView = ViewPortfolio // Wrap around
+				}
+				return m, nil
+			case "down", "j", "enter":
+				// Exit toolbar, focus content
+				m.toolbarFocused = false
+				return m, nil
+			case "esc":
+				// Esc in toolbar goes back to content
+				m.toolbarFocused = false
+				return m, nil
+			case "1":
+				m.currentView = ViewPortfolio
+				m.toolbarFocused = false
+				return m, nil
+			case "2":
+				m.currentView = ViewWatchlist
+				m.toolbarFocused = false
+				if m.watchlist.State == WatchlistStateLoading && len(m.watchlist.Symbols) > 0 {
+					return m, FetchWatchlistQuotes(m.watchlist.Symbols, m.cfg, m.store)
+				}
+				return m, nil
+			case "3":
+				m.currentView = ViewOrders
+				m.toolbarFocused = false
+				if m.orders.State == OrdersStateLoading {
+					return m, FetchOrders(m.cfg, m.store)
+				}
+				return m, nil
+			case "4":
+				m.currentView = ViewTrade
+				m.toolbarFocused = false
+				return m, nil
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
 		// Handle watchlist input modes first - they consume all keys
 		if m.currentView == ViewWatchlist && m.watchlist.Mode != WatchlistModeNormal {
 			m.watchlist, cmd, _ = m.watchlist.Update(msg, m.uiCfg)
@@ -161,6 +219,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch msg.String() {
 				case "q", "ctrl+c":
 					return m, tea.Quit
+				case "esc":
+					// Esc focuses the toolbar for navigation
+					m.toolbarFocused = true
+					return m, nil
 				case "1":
 					m.currentView = ViewPortfolio
 					return m, nil
@@ -191,7 +253,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc":
-			// Esc doesn't quit in normal mode
+			// Esc focuses the toolbar for navigation
+			m.toolbarFocused = true
 			return m, nil
 		case "a":
 			// On watchlist view, 'a' is for adding symbols, not account picker
@@ -309,6 +372,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Silently ignore account loading errors - we still have the default account
 		_ = msg.Err
 
+	case ToolbarFocusMsg:
+		// Child view requested toolbar focus
+		m.toolbarFocused = true
+
 	case TickMsg:
 		// Auto-refresh based on current view
 		if m.currentView == ViewPortfolio && m.portfolio.State != PortfolioStateLoading {
@@ -388,9 +455,21 @@ func (m Model) renderHeader() string {
 	for _, tab := range tabs {
 		style := lipgloss.NewStyle().Padding(0, 1)
 		if tab.active {
-			style = style.Bold(true).Foreground(ColorPrimary)
+			if m.toolbarFocused {
+				// Inverted colors when toolbar is focused
+				style = style.Bold(true).
+					Foreground(lipgloss.Color("#000000")).
+					Background(ColorPrimary)
+			} else {
+				style = style.Bold(true).Foreground(ColorPrimary)
+			}
 		} else {
-			style = style.Foreground(ColorMuted)
+			if m.toolbarFocused {
+				// Slightly brighter when toolbar is focused
+				style = style.Foreground(lipgloss.Color("#888888"))
+			} else {
+				style = style.Foreground(ColorMuted)
+			}
 		}
 		tabStrs = append(tabStrs, style.Render(fmt.Sprintf("[%s] %s", tab.key, tab.name)))
 	}
@@ -504,12 +583,41 @@ func (m Model) renderFooter() string {
 			Render(footerContent)
 	}
 
+	// Toolbar navigation has its own keys
+	if m.toolbarFocused {
+		keys = []struct{ key, desc string }{
+			{"←/→", "switch tab"},
+			{"↓/enter", "focus content"},
+			{"1-4", "jump to tab"},
+			{"q", "quit"},
+		}
+
+		var parts []string
+		for _, k := range keys {
+			parts = append(parts, KeyStyle.Render(k.key)+" "+DescStyle.Render(k.desc))
+		}
+
+		footerContent := strings.Join(parts, "  •  ")
+
+		// Pad to full width
+		padding := m.width - lipgloss.Width(footerContent)
+		if padding > 0 {
+			footerContent += strings.Repeat(" ", padding)
+		}
+
+		return lipgloss.NewStyle().
+			Background(ColorBackground).
+			Width(m.width).
+			Render(footerContent)
+	}
+
 	keys = append(keys, struct{ key, desc string }{"1-4", "switch view"})
 
 	// Add view-specific keys
 	switch m.currentView {
 	case ViewPortfolio:
 		keys = append(keys, struct{ key, desc string }{"↑/↓", "navigate"})
+		keys = append(keys, struct{ key, desc string }{"esc", "toolbar"})
 		keys = append(keys, struct{ key, desc string }{"r", "refresh"})
 	case ViewWatchlist:
 		switch m.watchlist.Mode {
@@ -518,6 +626,7 @@ func (m Model) renderFooter() string {
 			keys = append(keys, struct{ key, desc string }{"a", "add"})
 			keys = append(keys, struct{ key, desc string }{"d", "delete"})
 			keys = append(keys, struct{ key, desc string }{"enter", "trade"})
+			keys = append(keys, struct{ key, desc string }{"esc", "toolbar"})
 			keys = append(keys, struct{ key, desc string }{"r", "refresh"})
 		case WatchlistModeAdding:
 			keys = []struct{ key, desc string }{
@@ -535,6 +644,7 @@ func (m Model) renderFooter() string {
 		case OrdersModeNormal:
 			keys = append(keys, struct{ key, desc string }{"↑/↓", "navigate"})
 			keys = append(keys, struct{ key, desc string }{"c", "cancel order"})
+			keys = append(keys, struct{ key, desc string }{"esc", "toolbar"})
 			keys = append(keys, struct{ key, desc string }{"r", "refresh"})
 		case OrdersModeCanceling:
 			keys = []struct{ key, desc string }{
@@ -553,11 +663,12 @@ func (m Model) renderFooter() string {
 				keys = []struct{ key, desc string }{
 					{"tab", "next field"},
 					{"enter", "submit"},
-					{"esc", "exit field"},
+					{"esc", "toolbar"},
 				}
 			} else {
 				keys = append(keys, struct{ key, desc string }{"tab", "next field"})
 				keys = append(keys, struct{ key, desc string }{"space", "toggle"})
+				keys = append(keys, struct{ key, desc string }{"esc", "toolbar"})
 				keys = append(keys, struct{ key, desc string }{"enter", "submit"})
 			}
 		case TradeModeConfirm:
