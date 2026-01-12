@@ -55,6 +55,35 @@ type OrderResponse struct {
 	OrderID string `json:"orderId"`
 }
 
+// PreflightRequest represents a preflight request to estimate order costs.
+type PreflightRequest struct {
+	Instrument OrderInstrument `json:"instrument"`
+	OrderSide  string          `json:"orderSide"`
+	OrderType  string          `json:"orderType"`
+	Expiration OrderExpiration `json:"expiration"`
+	Quantity   string          `json:"quantity,omitempty"`
+	LimitPrice string          `json:"limitPrice,omitempty"`
+	StopPrice  string          `json:"stopPrice,omitempty"`
+}
+
+// RegulatoryFees represents the breakdown of regulatory fees.
+type RegulatoryFees struct {
+	SECFee string `json:"secFee"`
+	TAFFee string `json:"tafFee"`
+	ORFFee string `json:"orfFee"`
+}
+
+// PreflightResponse represents the API response for preflight estimation.
+type PreflightResponse struct {
+	Instrument             OrderInstrument `json:"instrument"`
+	EstimatedCommission    string          `json:"estimatedCommission"`
+	RegulatoryFees         RegulatoryFees  `json:"regulatoryFees"`
+	EstimatedCost          string          `json:"estimatedCost"`
+	BuyingPowerRequirement string          `json:"buyingPowerRequirement"`
+	OrderValue             string          `json:"orderValue"`
+	EstimatedQuantity      string          `json:"estimatedQuantity"`
+}
+
 // OrderStatusResponse represents the API response for order status.
 type OrderStatusResponse struct {
 	OrderID        string          `json:"orderId"`
@@ -109,26 +138,46 @@ Examples:
 	return cmd
 }
 
+// orderParams holds the parameters for an order.
+type orderParams struct {
+	quantity   string
+	limitPrice string
+	stopPrice  string
+	expiration string
+}
+
 // newOrderBuyCmd creates the buy subcommand with the given options.
 func newOrderBuyCmd(opts orderOptions) *cobra.Command {
-	var quantity string
+	var params orderParams
 	var skipConfirm bool
 
 	cmd := &cobra.Command{
 		Use:   "buy SYMBOL",
 		Short: "Buy shares of a stock",
-		Long: `Place a market buy order for shares of a stock.
+		Long: `Place a buy order for shares of a stock.
+
+Order types are determined by the flags used:
+  - No price flags: MARKET order (executes at current market price)
+  - --limit: LIMIT order (executes at limit price or better)
+  - --stop: STOP order (triggers when stop price is reached)
+  - --limit and --stop: STOP_LIMIT order (triggers at stop, executes at limit)
 
 Examples:
-  pub order buy AAPL --quantity 10        # Buy 10 shares of Apple
-  pub order buy AAPL --quantity 10 --yes  # Skip confirmation`,
+  pub order buy AAPL --quantity 10                           # Market order
+  pub order buy AAPL --quantity 10 --limit 175.00            # Limit order
+  pub order buy AAPL --quantity 10 --stop 180.00             # Stop order
+  pub order buy AAPL --quantity 10 --limit 175.00 --stop 174.00  # Stop-limit order
+  pub order buy AAPL --quantity 10 --limit 175.00 --expiration GTC  # Good till cancelled`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runOrder(cmd, opts, args[0], "BUY", quantity, skipConfirm)
+			return runOrder(cmd, opts, args[0], "BUY", params, skipConfirm)
 		},
 	}
 
-	cmd.Flags().StringVarP(&quantity, "quantity", "q", "", "Number of shares to buy (required)")
+	cmd.Flags().StringVarP(&params.quantity, "quantity", "q", "", "Number of shares to buy (required)")
+	cmd.Flags().StringVarP(&params.limitPrice, "limit", "l", "", "Limit price for LIMIT or STOP_LIMIT orders")
+	cmd.Flags().StringVarP(&params.stopPrice, "stop", "s", "", "Stop price for STOP or STOP_LIMIT orders")
+	cmd.Flags().StringVarP(&params.expiration, "expiration", "e", "DAY", "Order expiration: DAY (default) or GTC")
 	cmd.Flags().BoolVarP(&skipConfirm, "yes", "y", false, "Skip confirmation prompt")
 	cmd.SilenceUsage = true
 
@@ -137,24 +186,36 @@ Examples:
 
 // newOrderSellCmd creates the sell subcommand with the given options.
 func newOrderSellCmd(opts orderOptions) *cobra.Command {
-	var quantity string
+	var params orderParams
 	var skipConfirm bool
 
 	cmd := &cobra.Command{
 		Use:   "sell SYMBOL",
 		Short: "Sell shares of a stock",
-		Long: `Place a market sell order for shares of a stock.
+		Long: `Place a sell order for shares of a stock.
+
+Order types are determined by the flags used:
+  - No price flags: MARKET order (executes at current market price)
+  - --limit: LIMIT order (executes at limit price or better)
+  - --stop: STOP order (triggers when stop price is reached)
+  - --limit and --stop: STOP_LIMIT order (triggers at stop, executes at limit)
 
 Examples:
-  pub order sell AAPL --quantity 5        # Sell 5 shares of Apple
-  pub order sell AAPL --quantity 5 --yes  # Skip confirmation`,
+  pub order sell AAPL --quantity 5                           # Market order
+  pub order sell AAPL --quantity 5 --limit 180.00            # Limit order
+  pub order sell AAPL --quantity 5 --stop 145.00             # Stop loss order
+  pub order sell AAPL --quantity 5 --limit 144.00 --stop 145.00  # Stop-limit order
+  pub order sell AAPL --quantity 5 --limit 180.00 --expiration GTC  # Good till cancelled`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runOrder(cmd, opts, args[0], "SELL", quantity, skipConfirm)
+			return runOrder(cmd, opts, args[0], "SELL", params, skipConfirm)
 		},
 	}
 
-	cmd.Flags().StringVarP(&quantity, "quantity", "q", "", "Number of shares to sell (required)")
+	cmd.Flags().StringVarP(&params.quantity, "quantity", "q", "", "Number of shares to sell (required)")
+	cmd.Flags().StringVarP(&params.limitPrice, "limit", "l", "", "Limit price for LIMIT or STOP_LIMIT orders")
+	cmd.Flags().StringVarP(&params.stopPrice, "stop", "s", "", "Stop price for STOP or STOP_LIMIT orders")
+	cmd.Flags().StringVarP(&params.expiration, "expiration", "e", "DAY", "Order expiration: DAY (default) or GTC")
 	cmd.Flags().BoolVarP(&skipConfirm, "yes", "y", false, "Skip confirmation prompt")
 	cmd.SilenceUsage = true
 
@@ -404,7 +465,136 @@ func runOrderList(cmd *cobra.Command, opts orderOptions) error {
 	return nil
 }
 
-func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side, quantity string, skipConfirm bool) error {
+// sumFees calculates the total regulatory fees.
+func sumFees(fees RegulatoryFees) string {
+	var total float64
+	if v, err := parseFloat(fees.SECFee); err == nil {
+		total += v
+	}
+	if v, err := parseFloat(fees.TAFFee); err == nil {
+		total += v
+	}
+	if v, err := parseFloat(fees.ORFFee); err == nil {
+		total += v
+	}
+	return fmt.Sprintf("%.2f", total)
+}
+
+// parseFloat parses a string as a float64, returning 0 on error.
+func parseFloat(s string) (float64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	var v float64
+	_, err := fmt.Sscanf(s, "%f", &v)
+	return v, err
+}
+
+// extractErrorMessage extracts a human-readable message from an API error.
+func extractErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	errStr := err.Error()
+
+	// Try to extract JSON error message from API response
+	// Format: "preflight API error: 400 - {"code":3003,"header":"...","message":"..."}"
+	if idx := strings.Index(errStr, "{"); idx != -1 {
+		jsonPart := errStr[idx:]
+		var apiErr struct {
+			Code    any    `json:"code"`
+			Header  string `json:"header"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(jsonPart), &apiErr) == nil {
+			if apiErr.Message != "" {
+				return apiErr.Message
+			}
+			if apiErr.Header != "" {
+				return apiErr.Header
+			}
+		}
+	}
+
+	// Fallback: return a shortened version of the error
+	if len(errStr) > 80 {
+		return errStr[:80] + "..."
+	}
+	return errStr
+}
+
+// determineOrderType determines the order type based on the provided prices.
+func determineOrderType(limitPrice, stopPrice string) string {
+	hasLimit := limitPrice != ""
+	hasStop := stopPrice != ""
+
+	switch {
+	case hasLimit && hasStop:
+		return "STOP_LIMIT"
+	case hasLimit:
+		return "LIMIT"
+	case hasStop:
+		return "STOP"
+	default:
+		return "MARKET"
+	}
+}
+
+// runPreflight calls the preflight API to get estimated costs for an order.
+func runPreflight(opts orderOptions, symbol, side string, params orderParams) (*PreflightResponse, error) {
+	orderType := determineOrderType(params.limitPrice, params.stopPrice)
+
+	// Validate expiration
+	expiration := strings.ToUpper(params.expiration)
+	if expiration == "" {
+		expiration = "DAY"
+	}
+
+	preflightReq := PreflightRequest{
+		Instrument: OrderInstrument{
+			Symbol: strings.ToUpper(symbol),
+			Type:   "EQUITY",
+		},
+		OrderSide: side,
+		OrderType: orderType,
+		Expiration: OrderExpiration{
+			TimeInForce: expiration,
+		},
+		Quantity:   params.quantity,
+		LimitPrice: params.limitPrice,
+		StopPrice:  params.stopPrice,
+	}
+
+	body, err := json.Marshal(preflightReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode preflight request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/preflight/single-leg", opts.accountID)
+	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to call preflight: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("preflight API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var preflightResp PreflightResponse
+	if err := json.NewDecoder(resp.Body).Decode(&preflightResp); err != nil {
+		return nil, fmt.Errorf("failed to decode preflight response: %w", err)
+	}
+
+	return &preflightResp, nil
+}
+
+func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side string, params orderParams, skipConfirm bool) error {
 	// Check trading is enabled
 	if !opts.tradingEnabled {
 		return config.ErrTradingDisabled
@@ -415,21 +605,53 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side, quantity stri
 		return fmt.Errorf("account ID is required (use --account flag or configure default account)")
 	}
 
-	if quantity == "" {
+	if params.quantity == "" {
 		return fmt.Errorf("quantity is required (use --quantity flag)")
 	}
 
 	symbol = strings.ToUpper(symbol)
 	orderID := uuid.New().String()
+	orderType := determineOrderType(params.limitPrice, params.stopPrice)
+
+	// Validate expiration
+	expiration := strings.ToUpper(params.expiration)
+	if expiration != "DAY" && expiration != "GTC" {
+		return fmt.Errorf("invalid expiration: %s (use DAY or GTC)", params.expiration)
+	}
+
+	// Call preflight to get estimated costs
+	preflight, preflightErr := runPreflight(opts, symbol, side, params)
 
 	// Show order preview (not in JSON mode)
 	if !opts.jsonMode {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nOrder Preview:\n")
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Action:   %s\n", side)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Symbol:   %s\n", symbol)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Quantity: %s shares\n", quantity)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Type:     MARKET\n")
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID: %s\n\n", orderID)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Quantity: %s shares\n", params.quantity)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Type:     %s\n", orderType)
+		if params.limitPrice != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Limit:    $%s\n", params.limitPrice)
+		}
+		if params.stopPrice != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Stop:     $%s\n", params.stopPrice)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Expires:  %s\n", expiration)
+
+		// Show preflight cost estimates if available
+		if preflightErr == nil && preflight != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Estimated Cost:\n")
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Order Value:  $%s\n", preflight.OrderValue)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Commission:   $%s\n", preflight.EstimatedCommission)
+			totalFees := sumFees(preflight.RegulatoryFees)
+			if totalFees != "0.00" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Reg Fees:     $%s\n", totalFees)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Total:        $%s\n", preflight.EstimatedCost)
+		} else if preflightErr != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Cost Estimate: unavailable (%s)\n", extractErrorMessage(preflightErr))
+		}
+
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Order ID: %s\n\n", orderID)
 	}
 
 	// Require confirmation unless --yes flag is set
@@ -448,11 +670,13 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side, quantity stri
 			Type:   "EQUITY",
 		},
 		OrderSide: side,
-		OrderType: "MARKET",
+		OrderType: orderType,
 		Expiration: OrderExpiration{
-			TimeInForce: "DAY",
+			TimeInForce: expiration,
 		},
-		Quantity: quantity,
+		Quantity:   params.quantity,
+		LimitPrice: params.limitPrice,
+		StopPrice:  params.stopPrice,
 	}
 
 	body, err := json.Marshal(orderReq)
@@ -481,11 +705,18 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side, quantity stri
 	// Output result
 	if opts.jsonMode {
 		result := map[string]any{
-			"orderId":  orderResp.OrderID,
-			"status":   "placed",
-			"symbol":   symbol,
-			"side":     side,
-			"quantity": quantity,
+			"orderId":   orderResp.OrderID,
+			"status":    "placed",
+			"symbol":    symbol,
+			"side":      side,
+			"quantity":  params.quantity,
+			"orderType": orderType,
+		}
+		if params.limitPrice != "" {
+			result["limitPrice"] = params.limitPrice
+		}
+		if params.stopPrice != "" {
+			result["stopPrice"] = params.stopPrice
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -494,7 +725,13 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side, quantity stri
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Order placed successfully!\n")
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID: %s\n", orderResp.OrderID)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s shares of %s\n", side, quantity, symbol)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s shares of %s (%s)\n", side, params.quantity, symbol, orderType)
+	if params.limitPrice != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Limit: $%s\n", params.limitPrice)
+	}
+	if params.stopPrice != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Stop: $%s\n", params.stopPrice)
+	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nNote: Order placement is asynchronous. Use 'pub order status %s' to check execution status.\n", orderResp.OrderID)
 
 	return nil
@@ -506,16 +743,25 @@ func init() {
 	orderCmd := newOrderCmd()
 
 	// Buy subcommand
-	var buyQuantity string
+	var buyParams orderParams
 	var buySkipConfirm bool
 	buyCmd := &cobra.Command{
 		Use:   "buy SYMBOL",
 		Short: "Buy shares of a stock",
-		Long: `Place a market buy order for shares of a stock.
+		Long: `Place a buy order for shares of a stock.
+
+Order types are determined by the flags used:
+  - No price flags: MARKET order (executes at current market price)
+  - --limit: LIMIT order (executes at limit price or better)
+  - --stop: STOP order (triggers when stop price is reached)
+  - --limit and --stop: STOP_LIMIT order (triggers at stop, executes at limit)
 
 Examples:
-  pub order buy AAPL --quantity 10        # Buy 10 shares of Apple
-  pub order buy AAPL --quantity 10 --yes  # Skip confirmation`,
+  pub order buy AAPL --quantity 10                           # Market order
+  pub order buy AAPL --quantity 10 --limit 175.00            # Limit order
+  pub order buy AAPL --quantity 10 --stop 180.00             # Stop order
+  pub order buy AAPL --quantity 10 --limit 175.00 --stop 174.00  # Stop-limit order
+  pub order buy AAPL --quantity 10 --limit 175.00 --expiration GTC  # Good till cancelled`,
 		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return nil // Validation happens in RunE
@@ -544,25 +790,37 @@ Examples:
 				jsonMode:       GetJSONMode(),
 			}
 
-			return runOrder(cmd, opts, args[0], "BUY", buyQuantity, buySkipConfirm)
+			return runOrder(cmd, opts, args[0], "BUY", buyParams, buySkipConfirm)
 		},
 	}
-	buyCmd.Flags().StringVarP(&buyQuantity, "quantity", "q", "", "Number of shares to buy (required)")
+	buyCmd.Flags().StringVarP(&buyParams.quantity, "quantity", "q", "", "Number of shares to buy (required)")
+	buyCmd.Flags().StringVarP(&buyParams.limitPrice, "limit", "l", "", "Limit price for LIMIT or STOP_LIMIT orders")
+	buyCmd.Flags().StringVarP(&buyParams.stopPrice, "stop", "s", "", "Stop price for STOP or STOP_LIMIT orders")
+	buyCmd.Flags().StringVarP(&buyParams.expiration, "expiration", "e", "DAY", "Order expiration: DAY (default) or GTC")
 	buyCmd.Flags().BoolVarP(&buySkipConfirm, "yes", "y", false, "Skip confirmation prompt")
 	buyCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
 	buyCmd.SilenceUsage = true
 
 	// Sell subcommand
-	var sellQuantity string
+	var sellParams orderParams
 	var sellSkipConfirm bool
 	sellCmd := &cobra.Command{
 		Use:   "sell SYMBOL",
 		Short: "Sell shares of a stock",
-		Long: `Place a market sell order for shares of a stock.
+		Long: `Place a sell order for shares of a stock.
+
+Order types are determined by the flags used:
+  - No price flags: MARKET order (executes at current market price)
+  - --limit: LIMIT order (executes at limit price or better)
+  - --stop: STOP order (triggers when stop price is reached)
+  - --limit and --stop: STOP_LIMIT order (triggers at stop, executes at limit)
 
 Examples:
-  pub order sell AAPL --quantity 5        # Sell 5 shares of Apple
-  pub order sell AAPL --quantity 5 --yes  # Skip confirmation`,
+  pub order sell AAPL --quantity 5                           # Market order
+  pub order sell AAPL --quantity 5 --limit 180.00            # Limit order
+  pub order sell AAPL --quantity 5 --stop 145.00             # Stop loss order
+  pub order sell AAPL --quantity 5 --limit 144.00 --stop 145.00  # Stop-limit order
+  pub order sell AAPL --quantity 5 --limit 180.00 --expiration GTC  # Good till cancelled`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(config.ConfigPath())
@@ -588,10 +846,13 @@ Examples:
 				jsonMode:       GetJSONMode(),
 			}
 
-			return runOrder(cmd, opts, args[0], "SELL", sellQuantity, sellSkipConfirm)
+			return runOrder(cmd, opts, args[0], "SELL", sellParams, sellSkipConfirm)
 		},
 	}
-	sellCmd.Flags().StringVarP(&sellQuantity, "quantity", "q", "", "Number of shares to sell (required)")
+	sellCmd.Flags().StringVarP(&sellParams.quantity, "quantity", "q", "", "Number of shares to sell (required)")
+	sellCmd.Flags().StringVarP(&sellParams.limitPrice, "limit", "l", "", "Limit price for LIMIT or STOP_LIMIT orders")
+	sellCmd.Flags().StringVarP(&sellParams.stopPrice, "stop", "s", "", "Stop price for STOP or STOP_LIMIT orders")
+	sellCmd.Flags().StringVarP(&sellParams.expiration, "expiration", "e", "DAY", "Order expiration: DAY (default) or GTC")
 	sellCmd.Flags().BoolVarP(&sellSkipConfirm, "yes", "y", false, "Skip confirmation prompt")
 	sellCmd.Flags().StringVarP(&accountID, "account", "a", "", "Account ID (uses default if not specified)")
 	sellCmd.SilenceUsage = true
