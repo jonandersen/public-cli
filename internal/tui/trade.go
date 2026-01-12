@@ -112,18 +112,15 @@ func NewTradeModel() *TradeModel {
 	symbolInput := textinput.New()
 	symbolInput.Placeholder = "AAPL"
 	symbolInput.CharLimit = 10
-	symbolInput.Width = 15
 	symbolInput.Focus()
 
 	quantityInput := textinput.New()
 	quantityInput.Placeholder = "0"
 	quantityInput.CharLimit = 10
-	quantityInput.Width = 15
 
 	limitPriceInput := textinput.New()
 	limitPriceInput.Placeholder = "0.00"
 	limitPriceInput.CharLimit = 12
-	limitPriceInput.Width = 15
 
 	return &TradeModel{
 		State:           TradeStateIdle,
@@ -481,54 +478,59 @@ func (m *TradeModel) View() string {
 		b.WriteString("\n\n")
 	}
 
-	// Symbol input
+	// Symbol input - label on its own line
 	symbolStyle := LabelStyle
 	if m.FocusedField == TradeFieldSymbol {
 		symbolStyle = ValueStyle
 	}
-	b.WriteString(symbolStyle.Render("Symbol:     "))
-	b.WriteString(m.renderTextInput(m.SymbolInput, m.FocusedField == TradeFieldSymbol))
+	b.WriteString(symbolStyle.Render("Symbol:"))
 	if m.State == TradeStateFetchingQuote {
-		b.WriteString(LabelStyle.Render("  (fetching quote...)"))
+		b.WriteString(LabelStyle.Render(" (fetching quote...)"))
 	} else if m.QuoteLoaded && m.Quote != nil {
-		b.WriteString(LabelStyle.Render(fmt.Sprintf("  $%s", m.Quote.Last)))
+		b.WriteString(LabelStyle.Render(fmt.Sprintf(" $%s", m.Quote.Last)))
 	}
+	b.WriteString("\n")
+	b.WriteString(m.renderTextInput(m.SymbolInput, m.FocusedField == TradeFieldSymbol))
 	b.WriteString("\n\n")
 
-	// Side toggle (BUY/SELL)
+	// Side toggle (BUY/SELL) - label on its own line
 	sideStyle := LabelStyle
 	if m.FocusedField == TradeFieldSide {
 		sideStyle = ValueStyle
 	}
-	b.WriteString(sideStyle.Render("Side:       "))
+	b.WriteString(sideStyle.Render("Side:"))
+	b.WriteString("\n")
 	b.WriteString(m.renderToggle([]string{"BUY", "SELL"}, int(m.Side), m.FocusedField == TradeFieldSide))
 	b.WriteString("\n\n")
 
-	// Order type toggle (MARKET/LIMIT)
+	// Order type toggle (MARKET/LIMIT) - label on its own line
 	typeStyle := LabelStyle
 	if m.FocusedField == TradeFieldOrderType {
 		typeStyle = ValueStyle
 	}
-	b.WriteString(typeStyle.Render("Type:       "))
+	b.WriteString(typeStyle.Render("Type:"))
+	b.WriteString("\n")
 	b.WriteString(m.renderToggle([]string{"MARKET", "LIMIT"}, int(m.OrderType), m.FocusedField == TradeFieldOrderType))
 	b.WriteString("\n\n")
 
-	// Quantity input
+	// Quantity input - label on its own line
 	qtyStyle := LabelStyle
 	if m.FocusedField == TradeFieldQuantity {
 		qtyStyle = ValueStyle
 	}
-	b.WriteString(qtyStyle.Render("Quantity:   "))
+	b.WriteString(qtyStyle.Render("Quantity:"))
+	b.WriteString("\n")
 	b.WriteString(m.renderTextInput(m.QuantityInput, m.FocusedField == TradeFieldQuantity))
 	b.WriteString("\n\n")
 
-	// Limit price input (only for limit orders)
+	// Limit price input (only for limit orders) - label on its own line
 	if m.OrderType == TradeOrderTypeLimit {
 		priceStyle := LabelStyle
 		if m.FocusedField == TradeFieldLimitPrice {
 			priceStyle = ValueStyle
 		}
-		b.WriteString(priceStyle.Render("Limit Price: "))
+		b.WriteString(priceStyle.Render("Limit Price:"))
+		b.WriteString("\n")
 		b.WriteString(m.renderTextInput(m.LimitPriceInput, m.FocusedField == TradeFieldLimitPrice))
 		b.WriteString("\n\n")
 	}
