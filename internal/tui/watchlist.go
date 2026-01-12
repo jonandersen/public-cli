@@ -76,8 +76,15 @@ func NewWatchlistModel(symbols []string) *WatchlistModel {
 		symbols = []string{}
 	}
 
+	// If no symbols, start in loaded state (empty watchlist)
+	// Otherwise start loading and wait for quotes to be fetched
+	initialState := WatchlistStateLoading
+	if len(symbols) == 0 {
+		initialState = WatchlistStateLoaded
+	}
+
 	return &WatchlistModel{
-		State:    WatchlistStateLoading,
+		State:    initialState,
 		Symbols:  symbols,
 		Quotes:   make(map[string]Quote),
 		Table:    t,
