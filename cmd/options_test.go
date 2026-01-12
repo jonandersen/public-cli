@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -507,4 +508,269 @@ func TestOptionsChainCmd_EmptyChain(t *testing.T) {
 
 	output := out.String()
 	assert.Contains(t, output, "No options")
+}
+
+func TestRunMultilegOrder_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+		if r.URL.Path == "/userapigateway/trading/test-account/preflight/multi-leg" {
+			// Preflight request
+			resp := MultilegPreflightResponse{
+				BaseSymbol:             "AAPL",
+				StrategyName:           "VERTICAL CALL SPREAD",
+				EstimatedCommission:    "0.00",
+				EstimatedCost:          "250.00",
+				OrderValue:             "250.00",
+				BuyingPowerRequirement: "250.00",
+				EstimatedQuantity:      "1",
+				Legs: []MultilegPreflightLeg{
+					{
+						Instrument:         MultilegInstrument{Symbol: "AAPL250117C00175000", Type: "OPTION"},
+						Side:               "BUY",
+						OpenCloseIndicator: "OPEN",
+						RatioQuantity:      1,
+					},
+					{
+						Instrument:         MultilegInstrument{Symbol: "AAPL250117C00180000", Type: "OPTION"},
+						Side:               "SELL",
+						OpenCloseIndicator: "OPEN",
+						RatioQuantity:      1,
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.URL.Path == "/userapigateway/trading/test-account/order/multi-leg" {
+			// Order request
+			var req MultilegOrderRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+
+			// Verify order request fields
+			assert.NotEmpty(t, req.OrderID)
+			assert.Equal(t, "LIMIT", req.OrderType)
+			assert.Equal(t, "2.50", req.LimitPrice)
+			assert.Equal(t, "1", req.Quantity)
+			assert.Equal(t, "DAY", req.Expiration.TimeInForce)
+			assert.Len(t, req.Legs, 2)
+
+			resp := MultilegOrderResponse{
+				OrderID: req.OrderID,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		t.Errorf("unexpected path: %s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+		jsonMode:  false,
+	}
+
+	legs := []string{
+		"BUY AAPL250117C00175000 OPEN",
+		"SELL AAPL250117C00180000 OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runMultilegOrder(cmd, opts, legs, "2.50", "1", "DAY", true)
+	require.NoError(t, err)
+
+	output := cmd.OutOrStdout().(*bytes.Buffer).String()
+	assert.Contains(t, output, "Order placed successfully")
+	assert.Contains(t, output, "VERTICAL CALL SPREAD")
+	assert.Contains(t, output, "AAPL")
+}
+
+func TestRunMultilegOrder_RequiresConfirmation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return preflight response
+		resp := MultilegPreflightResponse{
+			BaseSymbol:             "AAPL",
+			StrategyName:           "VERTICAL CALL SPREAD",
+			EstimatedCost:          "250.00",
+			BuyingPowerRequirement: "250.00",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+		jsonMode:  false,
+	}
+
+	legs := []string{
+		"BUY AAPL250117C00175000 OPEN",
+		"SELL AAPL250117C00180000 OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runMultilegOrder(cmd, opts, legs, "2.50", "1", "DAY", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires confirmation")
+}
+
+func TestRunMultilegOrder_MinimumTwoLegs(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	legs := []string{
+		"BUY AAPL250117C00175000 OPEN", // Only 1 leg
+	}
+
+	cmd := newTestCmd()
+	err := runMultilegOrder(cmd, opts, legs, "2.50", "1", "DAY", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least 2 legs")
+}
+
+func TestRunMultilegOrder_MaximumSixLegs(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	legs := []string{
+		"BUY AAPL250117C00175000 OPEN",
+		"SELL AAPL250117C00180000 OPEN",
+		"BUY AAPL250117C00185000 OPEN",
+		"SELL AAPL250117C00190000 OPEN",
+		"BUY AAPL250117P00165000 OPEN",
+		"SELL AAPL250117P00160000 OPEN",
+		"BUY AAPL250117P00155000 OPEN", // 7th leg
+	}
+
+	cmd := newTestCmd()
+	err := runMultilegOrder(cmd, opts, legs, "2.50", "1", "DAY", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most 6 legs")
+}
+
+func TestRunMultilegOrder_InvalidExpiration(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	legs := []string{
+		"BUY AAPL250117C00175000 OPEN",
+		"SELL AAPL250117C00180000 OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runMultilegOrder(cmd, opts, legs, "2.50", "1", "INVALID", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid expiration")
+}
+
+func TestRunMultilegOrder_JSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/userapigateway/trading/test-account/preflight/multi-leg" {
+			resp := MultilegPreflightResponse{
+				BaseSymbol:   "AAPL",
+				StrategyName: "VERTICAL CALL SPREAD",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.URL.Path == "/userapigateway/trading/test-account/order/multi-leg" {
+			var req MultilegOrderRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			resp := MultilegOrderResponse{OrderID: req.OrderID}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+		jsonMode:  true,
+	}
+
+	legs := []string{
+		"BUY AAPL250117C00175000 OPEN",
+		"SELL AAPL250117C00180000 OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runMultilegOrder(cmd, opts, legs, "2.50", "1", "DAY", true)
+	require.NoError(t, err)
+
+	output := cmd.OutOrStdout().(*bytes.Buffer).String()
+	var result map[string]any
+	err = json.Unmarshal([]byte(output), &result)
+	require.NoError(t, err)
+
+	assert.Equal(t, "placed", result["status"])
+	assert.Equal(t, "VERTICAL CALL SPREAD", result["strategy"])
+	assert.Equal(t, float64(2), result["legs"])
+}
+
+func TestRunMultilegOrder_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/userapigateway/trading/test-account/preflight/multi-leg" {
+			resp := MultilegPreflightResponse{
+				BaseSymbol:   "AAPL",
+				StrategyName: "VERTICAL CALL SPREAD",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Order fails
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error": "insufficient buying power"}`))
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	legs := []string{
+		"BUY AAPL250117C00175000 OPEN",
+		"SELL AAPL250117C00180000 OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runMultilegOrder(cmd, opts, legs, "2.50", "1", "DAY", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "400")
+	assert.Contains(t, err.Error(), "insufficient buying power")
+}
+
+// newTestCmd creates a cobra.Command for testing with a buffer for output.
+func newTestCmd() *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	return cmd
 }
