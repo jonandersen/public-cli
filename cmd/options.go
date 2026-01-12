@@ -88,6 +88,75 @@ type GreeksData struct {
 	ImpliedVolatility string `json:"impliedVolatility"`
 }
 
+// MultilegPreflightRequest represents a multi-leg preflight request.
+type MultilegPreflightRequest struct {
+	OrderType  string              `json:"orderType"`
+	Expiration MultilegExpiration  `json:"expiration"`
+	Quantity   string              `json:"quantity"`
+	LimitPrice string              `json:"limitPrice"`
+	Legs       []MultilegLeg       `json:"legs"`
+}
+
+// MultilegExpiration represents time-in-force for multi-leg orders.
+type MultilegExpiration struct {
+	TimeInForce string `json:"timeInForce"`
+}
+
+// MultilegLeg represents a single leg in a multi-leg order.
+type MultilegLeg struct {
+	Instrument         MultilegInstrument `json:"instrument"`
+	Side               string             `json:"side"`
+	OpenCloseIndicator string             `json:"openCloseIndicator"`
+	RatioQuantity      int                `json:"ratioQuantity"`
+}
+
+// MultilegInstrument represents an instrument in a multi-leg order.
+type MultilegInstrument struct {
+	Symbol string `json:"symbol"`
+	Type   string `json:"type"`
+}
+
+// MultilegPreflightResponse represents the API response for multi-leg preflight.
+type MultilegPreflightResponse struct {
+	BaseSymbol              string                   `json:"baseSymbol"`
+	StrategyName            string                   `json:"strategyName"`
+	Legs                    []MultilegPreflightLeg   `json:"legs"`
+	EstimatedCommission     string                   `json:"estimatedCommission"`
+	RegulatoryFees          MultilegRegulatoryFees   `json:"regulatoryFees"`
+	EstimatedIndexOptionFee string                   `json:"estimatedIndexOptionFee"`
+	OrderValue              string                   `json:"orderValue"`
+	EstimatedQuantity       string                   `json:"estimatedQuantity"`
+	EstimatedCost           string                   `json:"estimatedCost"`
+	BuyingPowerRequirement  string                   `json:"buyingPowerRequirement"`
+	EstimatedProceeds       string                   `json:"estimatedProceeds"`
+	PriceIncrement          MultilegPriceIncrement   `json:"priceIncrement"`
+}
+
+// MultilegPreflightLeg represents a leg in the preflight response.
+type MultilegPreflightLeg struct {
+	Instrument         MultilegInstrument `json:"instrument"`
+	Side               string             `json:"side"`
+	OpenCloseIndicator string             `json:"openCloseIndicator"`
+	RatioQuantity      int                `json:"ratioQuantity"`
+}
+
+// MultilegRegulatoryFees represents regulatory fees for multi-leg orders.
+type MultilegRegulatoryFees struct {
+	SECFee      string `json:"secFee"`
+	TAFFee      string `json:"tafFee"`
+	ORFFee      string `json:"orfFee"`
+	ExchangeFee string `json:"exchangeFee"`
+	OCCFee      string `json:"occFee"`
+	CATFee      string `json:"catFee"`
+}
+
+// MultilegPriceIncrement represents price increment information.
+type MultilegPriceIncrement struct {
+	IncrementBelow3  string `json:"incrementBelow3"`
+	IncrementAbove3  string `json:"incrementAbove3"`
+	CurrentIncrement string `json:"currentIncrement"`
+}
+
 // newOptionsExpirationsCmd creates the options expirations command with the given options.
 func newOptionsExpirationsCmd(opts optionsOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -358,6 +427,177 @@ func runOptionsGreeks(cmd *cobra.Command, opts optionsOptions, symbols []string)
 	return nil
 }
 
+// parseLeg parses a leg string in format "SIDE SYMBOL OPEN|CLOSE [RATIO]"
+// Example: "BUY AAPL250117C00175000 OPEN" or "SELL AAPL250117C00180000 OPEN 2"
+func parseLeg(legStr string) (MultilegLeg, error) {
+	parts := strings.Fields(legStr)
+	if len(parts) < 3 {
+		return MultilegLeg{}, fmt.Errorf("invalid leg format: expected 'SIDE SYMBOL OPEN|CLOSE [RATIO]', got %q", legStr)
+	}
+
+	side := strings.ToUpper(parts[0])
+	if side != "BUY" && side != "SELL" {
+		return MultilegLeg{}, fmt.Errorf("invalid side %q: must be BUY or SELL", parts[0])
+	}
+
+	symbol := strings.ToUpper(parts[1])
+
+	openClose := strings.ToUpper(parts[2])
+	if openClose != "OPEN" && openClose != "CLOSE" {
+		return MultilegLeg{}, fmt.Errorf("invalid open/close %q: must be OPEN or CLOSE", parts[2])
+	}
+
+	ratio := 1
+	if len(parts) >= 4 {
+		if _, err := fmt.Sscanf(parts[3], "%d", &ratio); err != nil {
+			return MultilegLeg{}, fmt.Errorf("invalid ratio %q: must be an integer", parts[3])
+		}
+	}
+
+	// Determine instrument type from symbol (options have 21+ chars in OSI format)
+	instType := "OPTION"
+	if len(symbol) <= 5 {
+		instType = "EQUITY"
+	}
+
+	return MultilegLeg{
+		Instrument: MultilegInstrument{
+			Symbol: symbol,
+			Type:   instType,
+		},
+		Side:               side,
+		OpenCloseIndicator: openClose,
+		RatioQuantity:      ratio,
+	}, nil
+}
+
+func runMultilegPreflight(cmd *cobra.Command, opts optionsOptions, legs []string, limitPrice, quantity, expiration string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Parse legs
+	var parsedLegs []MultilegLeg
+	for _, legStr := range legs {
+		leg, err := parseLeg(legStr)
+		if err != nil {
+			return err
+		}
+		parsedLegs = append(parsedLegs, leg)
+	}
+
+	if len(parsedLegs) < 2 {
+		return fmt.Errorf("multi-leg orders require at least 2 legs")
+	}
+	if len(parsedLegs) > 6 {
+		return fmt.Errorf("multi-leg orders support at most 6 legs")
+	}
+
+	// Validate expiration
+	exp := strings.ToUpper(expiration)
+	if exp != "DAY" && exp != "GTC" {
+		return fmt.Errorf("invalid expiration: %s (use DAY or GTC)", expiration)
+	}
+
+	// Build request
+	req := MultilegPreflightRequest{
+		OrderType: "LIMIT",
+		Expiration: MultilegExpiration{
+			TimeInForce: exp,
+		},
+		Quantity:   quantity,
+		LimitPrice: limitPrice,
+		Legs:       parsedLegs,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/preflight/multi-leg", opts.accountID)
+	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to call preflight: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var preflightResp MultilegPreflightResponse
+	if err := json.NewDecoder(resp.Body).Decode(&preflightResp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Format output
+	if opts.jsonMode {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(preflightResp)
+	}
+
+	// Human-readable output
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nMulti-Leg Order Preview\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", strings.Repeat("-", 40))
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Strategy:    %s\n", preflightResp.StrategyName)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Underlying:  %s\n", preflightResp.BaseSymbol)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Quantity:    %s\n", preflightResp.EstimatedQuantity)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Limit:       $%s\n\n", limitPrice)
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Legs:\n")
+	for _, leg := range preflightResp.Legs {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %dx %s (%s)\n",
+			leg.Side, leg.RatioQuantity, leg.Instrument.Symbol, leg.OpenCloseIndicator)
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nEstimated Costs:\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order Value:     $%s\n", preflightResp.OrderValue)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commission:      $%s\n", preflightResp.EstimatedCommission)
+
+	// Sum up regulatory fees
+	fees := preflightResp.RegulatoryFees
+	totalFees := sumMultilegFees(fees)
+	if totalFees != "0.00" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Regulatory Fees: $%s\n", totalFees)
+	}
+	if preflightResp.EstimatedIndexOptionFee != "" && preflightResp.EstimatedIndexOptionFee != "0" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Index Option Fee: $%s\n", preflightResp.EstimatedIndexOptionFee)
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Total Cost:      $%s\n", preflightResp.EstimatedCost)
+
+	if preflightResp.EstimatedProceeds != "" && preflightResp.EstimatedProceeds != "0" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Est. Proceeds:   $%s\n", preflightResp.EstimatedProceeds)
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nBuying Power Required: $%s\n", preflightResp.BuyingPowerRequirement)
+
+	if preflightResp.PriceIncrement.CurrentIncrement != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Price Increment:       $%s\n", preflightResp.PriceIncrement.CurrentIncrement)
+	}
+
+	return nil
+}
+
+// sumMultilegFees calculates the total regulatory fees for multi-leg orders.
+func sumMultilegFees(fees MultilegRegulatoryFees) string {
+	var total float64
+	for _, feeStr := range []string{fees.SECFee, fees.TAFFee, fees.ORFFee, fees.ExchangeFee, fees.OCCFee, fees.CATFee} {
+		if feeStr == "" {
+			continue
+		}
+		var v float64
+		if _, err := fmt.Sscanf(feeStr, "%f", &v); err == nil {
+			total += v
+		}
+	}
+	return fmt.Sprintf("%.2f", total)
+}
+
 func init() {
 	var opts optionsOptions
 	var accountID string
@@ -513,8 +753,96 @@ Examples:
 	greeksCmd.Flags().StringVarP(&greeksAccountID, "account", "a", "", "Account ID (uses default if not specified)")
 	greeksCmd.SilenceUsage = true
 
+	// Multileg commands
+	multilegCmd := &cobra.Command{
+		Use:   "multileg",
+		Short: "Multi-leg options orders",
+		Long:  `Commands for multi-leg options strategies (spreads, straddles, etc.).`,
+	}
+
+	var multilegPreflightAccountID string
+	var multilegPreflightLegs []string
+	var multilegPreflightLimit string
+	var multilegPreflightQty string
+	var multilegPreflightExp string
+
+	multilegPreflightCmd := &cobra.Command{
+		Use:   "preflight",
+		Short: "Preview a multi-leg order",
+		Long: `Preview estimated costs for a multi-leg options order before placing it.
+
+Each leg is specified with --leg in format: "SIDE SYMBOL OPEN|CLOSE [RATIO]"
+  - SIDE: BUY or SELL
+  - SYMBOL: Option symbol in OSI format (e.g., AAPL250117C00175000)
+  - OPEN|CLOSE: Whether opening or closing the position
+  - RATIO: Optional ratio quantity (default 1)
+
+Examples:
+  # Vertical call spread (buy lower strike, sell higher strike)
+  pub options multileg preflight \
+    --leg "BUY AAPL250117C00175000 OPEN" \
+    --leg "SELL AAPL250117C00180000 OPEN" \
+    --limit 2.50 --quantity 1
+
+  # Iron condor (4 legs)
+  pub options multileg preflight \
+    --leg "SELL AAPL250117P00165000 OPEN" \
+    --leg "BUY AAPL250117P00160000 OPEN" \
+    --leg "SELL AAPL250117C00185000 OPEN" \
+    --leg "BUY AAPL250117C00190000 OPEN" \
+    --limit 1.20 --quantity 1`,
+		Args: cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := getAuthToken(store, cfg.APIBaseURL)
+			if err != nil {
+				return err
+			}
+
+			if multilegPreflightAccountID == "" {
+				multilegPreflightAccountID = cfg.AccountUUID
+			}
+
+			opts.baseURL = cfg.APIBaseURL
+			opts.authToken = token
+			opts.accountID = multilegPreflightAccountID
+			opts.jsonMode = GetJSONMode()
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.accountID == "" {
+				return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+			}
+			if len(multilegPreflightLegs) < 2 {
+				return fmt.Errorf("at least 2 legs required (use --leg flag)")
+			}
+			if multilegPreflightLimit == "" {
+				return fmt.Errorf("limit price is required (use --limit flag)")
+			}
+			if multilegPreflightQty == "" {
+				multilegPreflightQty = "1"
+			}
+			return runMultilegPreflight(cmd, opts, multilegPreflightLegs, multilegPreflightLimit, multilegPreflightQty, multilegPreflightExp)
+		},
+	}
+
+	multilegPreflightCmd.Flags().StringVarP(&multilegPreflightAccountID, "account", "a", "", "Account ID (uses default if not specified)")
+	multilegPreflightCmd.Flags().StringArrayVarP(&multilegPreflightLegs, "leg", "L", nil, "Leg in format 'SIDE SYMBOL OPEN|CLOSE [RATIO]' (repeat for each leg)")
+	multilegPreflightCmd.Flags().StringVarP(&multilegPreflightLimit, "limit", "l", "", "Limit price (required)")
+	multilegPreflightCmd.Flags().StringVarP(&multilegPreflightQty, "quantity", "q", "1", "Number of spreads/strategies")
+	multilegPreflightCmd.Flags().StringVarP(&multilegPreflightExp, "expiration", "e", "DAY", "Order expiration: DAY (default) or GTC")
+	multilegPreflightCmd.SilenceUsage = true
+
+	multilegCmd.AddCommand(multilegPreflightCmd)
+
 	optionsCmd.AddCommand(expirationsCmd)
 	optionsCmd.AddCommand(chainCmd)
 	optionsCmd.AddCommand(greeksCmd)
+	optionsCmd.AddCommand(multilegCmd)
 	rootCmd.AddCommand(optionsCmd)
 }
