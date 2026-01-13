@@ -6,9 +6,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/jonandersen/pub/internal/config"
-	"github.com/jonandersen/pub/internal/keyring"
-	"github.com/jonandersen/pub/internal/tui"
+	"github.com/jonandersen/public-cli/internal/config"
+	"github.com/jonandersen/public-cli/internal/keyring"
+	"github.com/jonandersen/public-cli/internal/tui"
 )
 
 func init() {

@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/jonandersen/pub/internal/config"
+	"github.com/jonandersen/public-cli/internal/config"
 )
 
 // UIConfig holds TUI-specific configuration separate from CLI config.

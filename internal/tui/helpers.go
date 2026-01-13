@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jonandersen/pub/internal/auth"
-	"github.com/jonandersen/pub/internal/keyring"
+	"github.com/jonandersen/public-cli/internal/auth"
+	"github.com/jonandersen/public-cli/internal/keyring"
 )
 
 // formatGainLoss formats a gain/loss value with +/- prefix.

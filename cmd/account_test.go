@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/jonandersen/pub/internal/keyring"
+	"github.com/jonandersen/public-cli/internal/keyring"
 )
 
 func TestAccountListCmd_Success(t *testing.T) {

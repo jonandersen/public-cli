@@ -36,6 +36,12 @@ tar xzf pub_*_linux_arm64.tar.gz
 sudo mv pub /usr/local/bin/
 ```
 
+### Go Install
+
+```bash
+go install github.com/jonandersen/public-cli@latest
+```
+
 ### Build from Source
 
 ```bash

@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/jonandersen/pub/internal/api"
-	"github.com/jonandersen/pub/internal/auth"
-	"github.com/jonandersen/pub/internal/config"
-	"github.com/jonandersen/pub/internal/keyring"
+	"github.com/jonandersen/public-cli/internal/api"
+	"github.com/jonandersen/public-cli/internal/auth"
+	"github.com/jonandersen/public-cli/internal/config"
+	"github.com/jonandersen/public-cli/internal/keyring"
 )
 
 // passwordReader abstracts terminal password input for testing.

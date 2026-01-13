@@ -15,9 +15,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 
-	"github.com/jonandersen/pub/internal/api"
-	"github.com/jonandersen/pub/internal/config"
-	"github.com/jonandersen/pub/internal/keyring"
+	"github.com/jonandersen/public-cli/internal/api"
+	"github.com/jonandersen/public-cli/internal/config"
+	"github.com/jonandersen/public-cli/internal/keyring"
 )
 
 // TradeState represents the current state of the trade view.

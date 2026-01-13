@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jonandersen/pub/internal/api"
-	"github.com/jonandersen/pub/internal/auth"
-	"github.com/jonandersen/pub/internal/config"
-	"github.com/jonandersen/pub/internal/keyring"
-	"github.com/jonandersen/pub/internal/output"
+	"github.com/jonandersen/public-cli/internal/api"
+	"github.com/jonandersen/public-cli/internal/auth"
+	"github.com/jonandersen/public-cli/internal/config"
+	"github.com/jonandersen/public-cli/internal/keyring"
+	"github.com/jonandersen/public-cli/internal/output"
 )
 
 // accountOptions holds dependencies for the account command.

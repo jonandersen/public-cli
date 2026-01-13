@@ -26,7 +26,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/jonandersen/pub/cmd.Version={{.Version}}
+      - -X github.com/jonandersen/public-cli/cmd.Version={{.Version}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
