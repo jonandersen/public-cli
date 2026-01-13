@@ -38,6 +38,14 @@ const (
 	OptionsFocusPuts
 )
 
+// GreeksDisplayMode represents how Greeks are displayed.
+type GreeksDisplayMode int
+
+const (
+	GreeksDisplayCompact  GreeksDisplayMode = iota // Delta, Theta, IV inline
+	GreeksDisplayExpanded                          // All Greeks: Delta, Gamma, Theta, Vega, Rho, IV
+)
+
 // OptionsModel holds the state for the options view.
 type OptionsModel struct {
 	State       OptionsState
@@ -59,9 +67,13 @@ type OptionsModel struct {
 	Greeks      map[string]api.GreeksData
 	CallsCursor int
 	PutsCursor  int
-	ShowGreeks  bool
+	GreeksMode  GreeksDisplayMode
 	Height      int
 	OptionsBP   string
+
+	// Detail panel
+	ShowDetailPanel bool
+	SelectedOption  *api.OptionQuote
 
 	// Asset selector (for watchlist/portfolio selection)
 	AssetSelector     *AssetSelectorModel
@@ -248,6 +260,16 @@ func (m *OptionsModel) handleExpirationKeys(msg tea.KeyMsg, cfg *config.Config, 
 }
 
 func (m *OptionsModel) handleChainKeys(msg tea.KeyMsg, cfg *config.Config, store keyring.Store) (*OptionsModel, tea.Cmd) {
+	// If detail panel is open, handle it first
+	if m.ShowDetailPanel {
+		if msg.String() == "esc" || msg.String() == "enter" {
+			m.ShowDetailPanel = false
+			m.SelectedOption = nil
+			return m, nil
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		switch m.Focus {
@@ -299,8 +321,30 @@ func (m *OptionsModel) handleChainKeys(msg tea.KeyMsg, cfg *config.Config, store
 		return m, nil
 
 	case "g":
-		// Toggle greeks display
-		m.ShowGreeks = !m.ShowGreeks
+		// Toggle greeks display mode
+		if m.GreeksMode == GreeksDisplayCompact {
+			m.GreeksMode = GreeksDisplayExpanded
+		} else {
+			m.GreeksMode = GreeksDisplayCompact
+		}
+		return m, nil
+
+	case "enter":
+		// Show detail panel for selected option
+		if m.Chain != nil {
+			switch m.Focus {
+			case OptionsFocusCalls:
+				if m.CallsCursor >= 0 && m.CallsCursor < len(m.Chain.Calls) {
+					m.SelectedOption = &m.Chain.Calls[m.CallsCursor]
+					m.ShowDetailPanel = true
+				}
+			case OptionsFocusPuts:
+				if m.PutsCursor >= 0 && m.PutsCursor < len(m.Chain.Puts) {
+					m.SelectedOption = &m.Chain.Puts[m.PutsCursor]
+					m.ShowDetailPanel = true
+				}
+			}
+		}
 		return m, nil
 
 	case "r":
@@ -552,6 +596,12 @@ func (m *OptionsModel) renderChain() string {
 	b.WriteString(LabelStyle.Render(fmt.Sprintf("Exp: %s (%d DTE)", exp, dte)))
 	b.WriteString("\n\n")
 
+	// Show detail panel if active
+	if m.ShowDetailPanel && m.SelectedOption != nil {
+		b.WriteString(m.renderDetailPanel())
+		b.WriteString("\n\n")
+	}
+
 	// Render calls table
 	b.WriteString(m.renderOptionsTable("CALLS", m.Chain.Calls, m.CallsCursor, m.Focus == OptionsFocusCalls))
 	b.WriteString("\n")
@@ -566,6 +616,77 @@ func (m *OptionsModel) renderChain() string {
 	return b.String()
 }
 
+func (m *OptionsModel) renderDetailPanel() string {
+	var b strings.Builder
+
+	opt := m.SelectedOption
+	strike := parseStrikeFromOSI(opt.Instrument.Symbol)
+	optionType := "CALL"
+	if strings.Contains(opt.Instrument.Symbol, "P") {
+		// Check if it's a put (OSI format has C for call, P for put)
+		// Position 6 from end in OSI: AAPL250117P00185000
+		if len(opt.Instrument.Symbol) > 8 {
+			typeChar := opt.Instrument.Symbol[len(opt.Instrument.Symbol)-9]
+			if typeChar == 'P' {
+				optionType = "PUT"
+			}
+		}
+	}
+
+	// Panel header
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
+	b.WriteString(headerStyle.Render(fmt.Sprintf("Strike Details: %.2f %s", strike, optionType)))
+	b.WriteString("\n")
+	b.WriteString(LabelStyle.Render(strings.Repeat("─", 55)))
+	b.WriteString("\n")
+
+	greeks := m.Greeks[opt.Instrument.Symbol]
+
+	// Calculate spread
+	bid, _ := strconv.ParseFloat(opt.Bid, 64)
+	ask, _ := strconv.ParseFloat(opt.Ask, 64)
+	spread := ask - bid
+
+	// Row 1: Symbol
+	b.WriteString(LabelStyle.Render("Symbol:     "))
+	b.WriteString(ValueStyle.Render(opt.Instrument.Symbol))
+	b.WriteString("\n")
+
+	// Row 2: Bid/Ask with spread
+	b.WriteString(LabelStyle.Render("Bid/Ask:    "))
+	b.WriteString(ValueStyle.Render(fmt.Sprintf("$%s / $%s (spread: $%.2f)", formatOptPrice(opt.Bid), formatOptPrice(opt.Ask), spread)))
+	b.WriteString("\n")
+
+	// Row 3: Volume and OI
+	b.WriteString(LabelStyle.Render("Volume:     "))
+	b.WriteString(ValueStyle.Render(fmt.Sprintf("%-14d", opt.Volume)))
+	b.WriteString(LabelStyle.Render("Open Interest: "))
+	b.WriteString(ValueStyle.Render(fmt.Sprintf("%d", opt.OpenInterest)))
+	b.WriteString("\n")
+
+	// Row 4: Delta and IV
+	b.WriteString(LabelStyle.Render("Delta:      "))
+	b.WriteString(ValueStyle.Render(fmt.Sprintf("%-14s", formatGreek(greeks.Delta))))
+	b.WriteString(LabelStyle.Render("Implied Vol:   "))
+	b.WriteString(ValueStyle.Render(formatIV(greeks.ImpliedVolatility)))
+	b.WriteString("\n")
+
+	// Row 5: Gamma and Theta
+	b.WriteString(LabelStyle.Render("Gamma:      "))
+	b.WriteString(ValueStyle.Render(fmt.Sprintf("%-14s", formatGreek(greeks.Gamma))))
+	b.WriteString(LabelStyle.Render("Theta:         "))
+	b.WriteString(ValueStyle.Render(formatGreek(greeks.Theta)))
+	b.WriteString("\n")
+
+	// Row 6: Vega and Rho
+	b.WriteString(LabelStyle.Render("Vega:       "))
+	b.WriteString(ValueStyle.Render(fmt.Sprintf("%-14s", formatGreek(greeks.Vega))))
+	b.WriteString(LabelStyle.Render("Rho:           "))
+	b.WriteString(ValueStyle.Render(formatGreek(greeks.Rho)))
+
+	return b.String()
+}
+
 func (m *OptionsModel) renderOptionsTable(title string, options []api.OptionQuote, cursor int, focused bool) string {
 	var b strings.Builder
 
@@ -573,17 +694,25 @@ func (m *OptionsModel) renderOptionsTable(title string, options []api.OptionQuot
 	if focused {
 		titleStyle = ValueStyle.Bold(true)
 	}
-	b.WriteString(titleStyle.Render(title))
+
+	// Title with Greeks mode indicator
+	greeksModeLabel := ""
+	if m.GreeksMode == GreeksDisplayExpanded {
+		greeksModeLabel = " (Greeks: ALL)"
+	} else {
+		greeksModeLabel = " (Greeks: ON)"
+	}
+	b.WriteString(titleStyle.Render(title + greeksModeLabel))
 	b.WriteString("\n")
 
-	// Header
-	if m.ShowGreeks {
-		b.WriteString(LabelStyle.Render("  Strike      Bid      Ask     Last    Vol       OI   Delta   Theta      IV"))
+	// Header based on mode
+	if m.GreeksMode == GreeksDisplayExpanded {
+		b.WriteString(LabelStyle.Render("  Strike      Bid      Ask   Delta   Gamma   Theta    Vega     Rho      IV"))
 	} else {
-		b.WriteString(LabelStyle.Render("  Strike      Bid      Ask     Last    Vol       OI"))
+		b.WriteString(LabelStyle.Render("  Strike      Bid      Ask     Last    Vol       OI   Delta   Theta      IV"))
 	}
 	b.WriteString("\n")
-	b.WriteString(LabelStyle.Render(strings.Repeat("─", 80)))
+	b.WriteString(LabelStyle.Render(strings.Repeat("─", 84)))
 	b.WriteString("\n")
 
 	// Calculate visible range
@@ -625,9 +754,24 @@ func (m *OptionsModel) renderOptionsTable(title string, options []api.OptionQuot
 			}
 		}
 
+		greeks := m.Greeks[opt.Instrument.Symbol]
+
 		var row string
-		if m.ShowGreeks {
-			greeks := m.Greeks[opt.Instrument.Symbol]
+		if m.GreeksMode == GreeksDisplayExpanded {
+			// Expanded: Strike, Bid, Ask, Delta, Gamma, Theta, Vega, Rho, IV
+			row = fmt.Sprintf("%-8.2f  %6s   %6s  %6s  %6s  %6s  %6s  %6s  %6s%s",
+				strike,
+				formatOptPrice(opt.Bid),
+				formatOptPrice(opt.Ask),
+				formatGreek(greeks.Delta),
+				formatGreek(greeks.Gamma),
+				formatGreek(greeks.Theta),
+				formatGreek(greeks.Vega),
+				formatGreek(greeks.Rho),
+				formatIV(greeks.ImpliedVolatility),
+				atmMarker)
+		} else {
+			// Compact: Strike, Bid, Ask, Last, Vol, OI, Delta, Theta, IV
 			row = fmt.Sprintf("%-8.2f  %6s   %6s   %6s  %5d  %6d  %6s  %6s  %6s%s",
 				strike,
 				formatOptPrice(opt.Bid),
@@ -638,15 +782,6 @@ func (m *OptionsModel) renderOptionsTable(title string, options []api.OptionQuot
 				formatGreek(greeks.Delta),
 				formatGreek(greeks.Theta),
 				formatIV(greeks.ImpliedVolatility),
-				atmMarker)
-		} else {
-			row = fmt.Sprintf("%-8.2f  %6s   %6s   %6s  %5d  %6d%s",
-				strike,
-				formatOptPrice(opt.Bid),
-				formatOptPrice(opt.Ask),
-				formatOptPrice(opt.Last),
-				opt.Volume,
-				opt.OpenInterest,
 				atmMarker)
 		}
 
@@ -681,6 +816,14 @@ func (m *OptionsModel) FooterKeys(keys []struct{ key, desc string }) []struct{ k
 		}
 	}
 
+	// Detail panel has its own keys
+	if m.ShowDetailPanel {
+		return []struct{ key, desc string }{
+			{"Esc", "close"},
+			{"Enter", "close"},
+		}
+	}
+
 	switch m.State {
 	case OptionsStateIdle, OptionsStateLoadingExpirations:
 		keys = append(keys, struct{ key, desc string }{"Enter", "search"})
@@ -692,9 +835,10 @@ func (m *OptionsModel) FooterKeys(keys []struct{ key, desc string }) []struct{ k
 		keys = append(keys, struct{ key, desc string }{"esc", "back"})
 	case OptionsStateChainLoaded:
 		keys = append(keys, struct{ key, desc string }{"↑/↓", "navigate"})
+		keys = append(keys, struct{ key, desc string }{"Enter", "details"})
 		keys = append(keys, struct{ key, desc string }{"c/p", "calls/puts"})
+		keys = append(keys, struct{ key, desc string }{"g", "toggle greeks"})
 		keys = append(keys, struct{ key, desc string }{"e", "expiration"})
-		keys = append(keys, struct{ key, desc string }{"g", "greeks"})
 		keys = append(keys, struct{ key, desc string }{"r", "refresh"})
 	case OptionsStateError:
 		keys = append(keys, struct{ key, desc string }{"esc", "back"})
