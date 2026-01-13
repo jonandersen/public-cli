@@ -2,10 +2,7 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,22 +18,6 @@ type instrumentOptions struct {
 	baseURL   string
 	authToken string
 	jsonMode  bool
-}
-
-// InstrumentIdentifier represents an instrument identifier in API responses.
-type InstrumentIdentifier struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// InstrumentResponse represents the API response for instrument details.
-type InstrumentResponse struct {
-	Instrument          InstrumentIdentifier `json:"instrument"`
-	Trading             string               `json:"trading"`
-	FractionalTrading   string               `json:"fractionalTrading"`
-	OptionTrading       string               `json:"optionTrading"`
-	OptionSpreadTrading string               `json:"optionSpreadTrading"`
-	InstrumentDetails   any                  `json:"instrumentDetails,omitempty"`
 }
 
 // newInstrumentCmd creates the instrument command with the given options.
@@ -74,25 +55,10 @@ func runInstrument(cmd *cobra.Command, opts instrumentOptions, symbol, instType 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	symbol = strings.ToUpper(symbol)
-	instType = strings.ToUpper(instType)
-
 	client := api.NewClient(opts.baseURL, opts.authToken)
-	path := fmt.Sprintf("/userapigateway/trading/instruments/%s/%s", symbol, instType)
-	resp, err := client.Get(ctx, path)
+	instResp, err := client.GetInstrument(ctx, symbol, instType)
 	if err != nil {
-		return fmt.Errorf("failed to fetch instrument: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
-	}
-
-	var instResp InstrumentResponse
-	if err := json.NewDecoder(resp.Body).Decode(&instResp); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
+		return err
 	}
 
 	// Format output

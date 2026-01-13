@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jonandersen/public-cli/internal/api"
 )
 
 func TestInstrumentsCmd_Success(t *testing.T) {
@@ -18,16 +20,16 @@ func TestInstrumentsCmd_Success(t *testing.T) {
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
 		resp := InstrumentsResponse{
-			Instruments: []InstrumentResponse{
+			Instruments: []api.InstrumentResponse{
 				{
-					Instrument:          InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
+					Instrument:          api.InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
 					Trading:             "BUY_AND_SELL",
 					FractionalTrading:   "BUY_AND_SELL",
 					OptionTrading:       "BUY_AND_SELL",
 					OptionSpreadTrading: "BUY_AND_SELL",
 				},
 				{
-					Instrument:          InstrumentIdentifier{Symbol: "MSFT", Type: "EQUITY"},
+					Instrument:          api.InstrumentIdentifier{Symbol: "MSFT", Type: "EQUITY"},
 					Trading:             "BUY_AND_SELL",
 					FractionalTrading:   "BUY_AND_SELL",
 					OptionTrading:       "BUY_AND_SELL",
@@ -64,16 +66,16 @@ func TestInstrumentsCmd_WithTypeFilter(t *testing.T) {
 		assert.Equal(t, "CRYPTO", r.URL.Query().Get("typeFilter"))
 
 		resp := InstrumentsResponse{
-			Instruments: []InstrumentResponse{
+			Instruments: []api.InstrumentResponse{
 				{
-					Instrument:          InstrumentIdentifier{Symbol: "BTC", Type: "CRYPTO"},
+					Instrument:          api.InstrumentIdentifier{Symbol: "BTC", Type: "CRYPTO"},
 					Trading:             "BUY_AND_SELL",
 					FractionalTrading:   "BUY_AND_SELL",
 					OptionTrading:       "DISABLED",
 					OptionSpreadTrading: "DISABLED",
 				},
 				{
-					Instrument:          InstrumentIdentifier{Symbol: "ETH", Type: "CRYPTO"},
+					Instrument:          api.InstrumentIdentifier{Symbol: "ETH", Type: "CRYPTO"},
 					Trading:             "BUY_AND_SELL",
 					FractionalTrading:   "BUY_AND_SELL",
 					OptionTrading:       "DISABLED",
@@ -109,9 +111,9 @@ func TestInstrumentsCmd_WithTradingFilter(t *testing.T) {
 		assert.Equal(t, "LIQUIDATION_ONLY", r.URL.Query().Get("tradingFilter"))
 
 		resp := InstrumentsResponse{
-			Instruments: []InstrumentResponse{
+			Instruments: []api.InstrumentResponse{
 				{
-					Instrument:          InstrumentIdentifier{Symbol: "DELISTED", Type: "EQUITY"},
+					Instrument:          api.InstrumentIdentifier{Symbol: "DELISTED", Type: "EQUITY"},
 					Trading:             "LIQUIDATION_ONLY",
 					FractionalTrading:   "DISABLED",
 					OptionTrading:       "DISABLED",
@@ -144,9 +146,9 @@ func TestInstrumentsCmd_WithTradingFilter(t *testing.T) {
 func TestInstrumentsCmd_JSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := InstrumentsResponse{
-			Instruments: []InstrumentResponse{
+			Instruments: []api.InstrumentResponse{
 				{
-					Instrument:          InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
+					Instrument:          api.InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
 					Trading:             "BUY_AND_SELL",
 					FractionalTrading:   "BUY_AND_SELL",
 					OptionTrading:       "BUY_AND_SELL",
@@ -183,7 +185,7 @@ func TestInstrumentsCmd_JSON(t *testing.T) {
 func TestInstrumentsCmd_EmptyResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := InstrumentsResponse{
-			Instruments: []InstrumentResponse{},
+			Instruments: []api.InstrumentResponse{},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -234,9 +236,9 @@ func TestInstrumentsCmd_MultipleFilters(t *testing.T) {
 		assert.Equal(t, "BUY_AND_SELL", r.URL.Query().Get("tradingFilter"))
 
 		resp := InstrumentsResponse{
-			Instruments: []InstrumentResponse{
+			Instruments: []api.InstrumentResponse{
 				{
-					Instrument:          InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
+					Instrument:          api.InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
 					Trading:             "BUY_AND_SELL",
 					FractionalTrading:   "BUY_AND_SELL",
 					OptionTrading:       "BUY_AND_SELL",

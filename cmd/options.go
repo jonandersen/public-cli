@@ -25,70 +25,6 @@ type optionsOptions struct {
 	jsonMode  bool
 }
 
-// OptionExpirationsRequest represents a request for option expirations.
-type OptionExpirationsRequest struct {
-	Instrument OptionInstrument `json:"instrument"`
-}
-
-// OptionInstrument represents an instrument for options requests.
-type OptionInstrument struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// OptionExpirationsResponse represents the API response for option expirations.
-type OptionExpirationsResponse struct {
-	BaseSymbol  string   `json:"baseSymbol"`
-	Expirations []string `json:"expirations"`
-}
-
-// OptionChainRequest represents a request for an option chain.
-type OptionChainRequest struct {
-	Instrument     OptionInstrument `json:"instrument"`
-	ExpirationDate string           `json:"expirationDate"`
-}
-
-// OptionChainResponse represents the API response for an option chain.
-type OptionChainResponse struct {
-	BaseSymbol string        `json:"baseSymbol"`
-	Calls      []OptionQuote `json:"calls"`
-	Puts       []OptionQuote `json:"puts"`
-}
-
-// OptionQuote represents a single option quote in the chain.
-type OptionQuote struct {
-	Instrument   OptionInstrument `json:"instrument"`
-	Outcome      string           `json:"outcome"`
-	Last         string           `json:"last"`
-	Bid          string           `json:"bid"`
-	BidSize      int              `json:"bidSize"`
-	Ask          string           `json:"ask"`
-	AskSize      int              `json:"askSize"`
-	Volume       int              `json:"volume"`
-	OpenInterest int              `json:"openInterest"`
-}
-
-// GreeksResponse represents the API response for option greeks.
-type GreeksResponse struct {
-	Greeks []OptionGreeks `json:"greeks"`
-}
-
-// OptionGreeks represents greeks for a single option.
-type OptionGreeks struct {
-	Symbol string     `json:"symbol"`
-	Greeks GreeksData `json:"greeks"`
-}
-
-// GreeksData contains the actual greek values.
-type GreeksData struct {
-	Delta             string `json:"delta"`
-	Gamma             string `json:"gamma"`
-	Theta             string `json:"theta"`
-	Vega              string `json:"vega"`
-	Rho               string `json:"rho"`
-	ImpliedVolatility string `json:"impliedVolatility"`
-}
-
 // MultilegPreflightRequest represents a multi-leg preflight request.
 type MultilegPreflightRequest struct {
 	OrderType  string             `json:"orderType"`
@@ -201,34 +137,10 @@ func runOptionsExpirations(cmd *cobra.Command, opts optionsOptions, symbol strin
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Build request
-	reqBody := OptionExpirationsRequest{
-		Instrument: OptionInstrument{
-			Symbol: strings.ToUpper(symbol),
-			Type:   "EQUITY",
-		},
-	}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to encode request: %w", err)
-	}
-
 	client := api.NewClient(opts.baseURL, opts.authToken)
-	path := fmt.Sprintf("/userapigateway/marketdata/%s/option-expirations", opts.accountID)
-	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	expResp, err := client.GetOptionExpirations(ctx, opts.accountID, symbol)
 	if err != nil {
-		return fmt.Errorf("failed to fetch expirations: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
-	}
-
-	var expResp OptionExpirationsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&expResp); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
+		return err
 	}
 
 	if len(expResp.Expirations) == 0 {
@@ -286,35 +198,10 @@ func runOptionsChain(cmd *cobra.Command, opts optionsOptions, symbol, expiration
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Build request
-	reqBody := OptionChainRequest{
-		Instrument: OptionInstrument{
-			Symbol: strings.ToUpper(symbol),
-			Type:   "EQUITY",
-		},
-		ExpirationDate: expiration,
-	}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to encode request: %w", err)
-	}
-
 	client := api.NewClient(opts.baseURL, opts.authToken)
-	path := fmt.Sprintf("/userapigateway/marketdata/%s/option-chain", opts.accountID)
-	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	chainResp, err := client.GetOptionChain(ctx, opts.accountID, symbol, expiration)
 	if err != nil {
-		return fmt.Errorf("failed to fetch option chain: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
-	}
-
-	var chainResp OptionChainResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chainResp); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
+		return err
 	}
 
 	if len(chainResp.Calls) == 0 && len(chainResp.Puts) == 0 {
@@ -383,33 +270,10 @@ func runOptionsGreeks(cmd *cobra.Command, opts optionsOptions, symbols []string)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Build query parameters
 	client := api.NewClient(opts.baseURL, opts.authToken)
-	path := fmt.Sprintf("/userapigateway/option-details/%s/greeks", opts.accountID)
-
-	// Add symbols as query params
-	query := "?"
-	for i, sym := range symbols {
-		if i > 0 {
-			query += "&"
-		}
-		query += "osiSymbols=" + strings.ToUpper(sym)
-	}
-
-	resp, err := client.Get(ctx, path+query)
+	greeksResp, err := client.GetOptionGreeks(ctx, opts.accountID, symbols)
 	if err != nil {
-		return fmt.Errorf("failed to fetch greeks: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
-	}
-
-	var greeksResp GreeksResponse
-	if err := json.NewDecoder(resp.Body).Decode(&greeksResp); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
+		return err
 	}
 
 	if len(greeksResp.Greeks) == 0 {

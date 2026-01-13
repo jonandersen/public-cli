@@ -26,7 +26,7 @@ type instrumentsOptions struct {
 
 // InstrumentsResponse represents the API response for listing instruments.
 type InstrumentsResponse struct {
-	Instruments []InstrumentResponse `json:"instruments"`
+	Instruments []api.InstrumentResponse `json:"instruments"`
 }
 
 // newInstrumentsCmd creates the instruments command with the given options.

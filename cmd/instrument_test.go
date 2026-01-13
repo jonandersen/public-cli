@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jonandersen/public-cli/internal/api"
 )
 
 func TestInstrumentCmd_Success(t *testing.T) {
@@ -17,8 +19,8 @@ func TestInstrumentCmd_Success(t *testing.T) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
-		resp := InstrumentResponse{
-			Instrument: InstrumentIdentifier{
+		resp := api.InstrumentResponse{
+			Instrument: api.InstrumentIdentifier{
 				Symbol: "AAPL",
 				Type:   "EQUITY",
 			},
@@ -54,8 +56,8 @@ func TestInstrumentCmd_WithType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/userapigateway/trading/instruments/BTC/CRYPTO", r.URL.Path)
 
-		resp := InstrumentResponse{
-			Instrument: InstrumentIdentifier{
+		resp := api.InstrumentResponse{
+			Instrument: api.InstrumentIdentifier{
 				Symbol: "BTC",
 				Type:   "CRYPTO",
 			},
@@ -88,8 +90,8 @@ func TestInstrumentCmd_WithType(t *testing.T) {
 
 func TestInstrumentCmd_JSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := InstrumentResponse{
-			Instrument: InstrumentIdentifier{
+		resp := api.InstrumentResponse{
+			Instrument: api.InstrumentIdentifier{
 				Symbol: "AAPL",
 				Type:   "EQUITY",
 			},
@@ -116,7 +118,7 @@ func TestInstrumentCmd_JSON(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	var result InstrumentResponse
+	var result api.InstrumentResponse
 	err = json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, "AAPL", result.Instrument.Symbol)
@@ -164,8 +166,8 @@ func TestInstrumentCmd_APIError(t *testing.T) {
 
 func TestInstrumentCmd_LiquidationOnly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := InstrumentResponse{
-			Instrument: InstrumentIdentifier{
+		resp := api.InstrumentResponse{
+			Instrument: api.InstrumentIdentifier{
 				Symbol: "DELISTED",
 				Type:   "EQUITY",
 			},
