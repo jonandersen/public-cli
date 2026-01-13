@@ -67,3 +67,14 @@ type AccountChangedMsg struct {
 
 // ToolbarFocusMsg is sent when a child view requests toolbar focus.
 type ToolbarFocusMsg struct{}
+
+// HistoryLoadedMsg is sent when history is loaded successfully.
+type HistoryLoadedMsg struct {
+	Transactions []Transaction
+	NextToken    string
+}
+
+// HistoryErrorMsg is sent when history loading fails.
+type HistoryErrorMsg struct {
+	Err error
+}

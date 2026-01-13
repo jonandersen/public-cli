@@ -25,6 +25,7 @@ const (
 	ViewOrders
 	ViewTrade
 	ViewOptions
+	ViewHistory
 )
 
 // Model is the main bubbletea model for the TUI.
@@ -45,6 +46,7 @@ type Model struct {
 	orders    *OrdersModel
 	trade     *TradeModel
 	options   *OptionsModel
+	history   *HistoryModel
 
 	// Refresh settings
 	refreshInterval time.Duration
@@ -71,6 +73,7 @@ func New(cfg *config.Config, uiCfg *UIConfig, store keyring.Store) Model {
 		orders:            NewOrdersModel(),
 		trade:             NewTradeModel(),
 		options:           NewOptionsModel(),
+		history:           NewHistoryModel(),
 		refreshInterval:   30 * time.Second,
 		selectedAccountID: cfg.AccountUUID,
 	}
@@ -191,6 +194,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = ViewOptions
 				m.toolbarFocused = false
 				return m, nil
+			case "6":
+				m.currentView = ViewHistory
+				m.toolbarFocused = false
+				if m.history.State == HistoryStateLoading {
+					return m, FetchHistory(m.cfg, m.store)
+				}
+				return m, nil
 			case "q", "ctrl+c":
 				return m, tea.Quit
 			}
@@ -268,6 +278,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Handle history view - detail panel consumes all keys
+		if m.currentView == ViewHistory && m.history.ShowDetail {
+			m.history, cmd, _ = m.history.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		// Handle global keys
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -310,6 +329,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView = ViewTrade
 		case "5":
 			m.currentView = ViewOptions
+		case "6":
+			m.currentView = ViewHistory
+			if m.history.State == HistoryStateLoading {
+				cmds = append(cmds, FetchHistory(m.cfg, m.store))
+			}
 		case "r":
 			// Manual refresh
 			switch m.currentView {
@@ -322,6 +346,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewOrders:
 				m.orders.State = OrdersStateLoading
 				cmds = append(cmds, FetchOrders(m.cfg, m.store))
+			case ViewHistory:
+				m.history.State = HistoryStateLoading
+				cmds = append(cmds, FetchHistory(m.cfg, m.store))
 			}
 		case "enter":
 			// Jump to trade from watchlist
@@ -332,6 +359,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.currentView = ViewTrade
 					// Fetch quote for the symbol
 					cmds = append(cmds, FetchTradeQuote(symbol, m.cfg, m.store))
+				}
+			} else if m.currentView == ViewHistory {
+				// Show detail for selected transaction
+				if len(m.history.Transactions) > 0 {
+					m.history.DetailIndex = m.history.Table.Cursor()
+					m.history.ShowDetail = true
 				}
 			}
 		default:
@@ -344,6 +377,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case ViewOrders:
 				m.orders, cmd, _ = m.orders.Update(msg, m.cfg, m.store)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			case ViewHistory:
+				m.history, cmd, _ = m.history.Update(msg)
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -366,6 +404,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.watchlist.SetHeight(tableHeight)
 		m.orders.SetHeight(tableHeight)
 		m.options.SetHeight(tableHeight)
+		m.history.SetHeight(tableHeight)
 
 	case PortfolioLoadedMsg, PortfolioErrorMsg:
 		m.portfolio, cmd = m.portfolio.Update(msg)
@@ -385,6 +424,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case OptionExpirationsLoadedMsg, OptionExpirationsErrorMsg, OptionChainLoadedMsg, OptionChainErrorMsg, OptionGreeksLoadedMsg, OptionQuoteLoadedMsg:
 		m.options, cmd = m.options.Update(msg, m.cfg, m.store)
+		cmds = append(cmds, cmd)
+
+	case HistoryLoadedMsg, HistoryErrorMsg:
+		m.history, cmd, _ = m.history.Update(msg)
 		cmds = append(cmds, cmd)
 
 	case AccountsLoadedMsg:
@@ -477,6 +520,7 @@ func (m Model) renderHeader() string {
 		{"Orders", "3", m.currentView == ViewOrders},
 		{"Trade", "4", m.currentView == ViewTrade},
 		{"Options", "5", m.currentView == ViewOptions},
+		{"History", "6", m.currentView == ViewHistory},
 	}
 
 	var tabStrs []string
@@ -574,6 +618,8 @@ func (m Model) renderContent() string {
 		content = m.trade.View()
 	case ViewOptions:
 		content = m.options.View()
+	case ViewHistory:
+		content = m.history.View()
 	}
 	return ContentStyle.Render(content)
 }
@@ -641,7 +687,7 @@ func (m Model) renderFooter() string {
 			Render(footerContent)
 	}
 
-	keys = append(keys, struct{ key, desc string }{"1-5", "switch view"})
+	keys = append(keys, struct{ key, desc string }{"1-6", "switch view"})
 
 	// Add view-specific keys
 	switch m.currentView {
@@ -709,6 +755,8 @@ func (m Model) renderFooter() string {
 		}
 	case ViewOptions:
 		keys = m.options.FooterKeys(keys)
+	case ViewHistory:
+		keys = m.history.FooterKeys(keys)
 	}
 
 	keys = append(keys, struct{ key, desc string }{"q", "quit"})
