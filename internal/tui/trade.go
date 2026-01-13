@@ -134,6 +134,27 @@ func NewTradeModel() *TradeModel {
 	}
 }
 
+// FocusSymbol ensures the symbol input is focused when entering the trade view.
+// Returns a tea.Cmd for the cursor blink animation.
+func (m *TradeModel) FocusSymbol() tea.Cmd {
+	if m.State == TradeStateSuccess {
+		return nil
+	}
+	m.blurAll()
+	m.FocusedField = TradeFieldSymbol
+	return m.SymbolInput.Focus()
+}
+
+// RefocusCurrent refocuses the currently focused field (used when returning from toolbar).
+// Returns a tea.Cmd for the cursor blink animation.
+func (m *TradeModel) RefocusCurrent() tea.Cmd {
+	if m.State == TradeStateSuccess {
+		return nil
+	}
+	m.focusCurrent()
+	return textinput.Blink
+}
+
 // SetSymbol sets the symbol to trade (called when jumping from watchlist).
 func (m *TradeModel) SetSymbol(symbol string) {
 	m.SymbolInput.SetValue(strings.ToUpper(symbol))
@@ -205,14 +226,10 @@ func (m *TradeModel) Update(msg tea.Msg, cfg *config.Config, store keyring.Store
 		// Handle form mode
 		switch msg.String() {
 		case "esc":
-			// Escape from text field goes to toolbar navigation
-			if m.IsTextFieldFocused() {
-				m.blurAll()
-				m.FocusedField = TradeFieldSide
-				// Signal parent to focus toolbar
-				return m, func() tea.Msg { return ToolbarFocusMsg{} }
-			}
-			return m, nil
+			// Escape goes to toolbar navigation (keep current field focus for when user returns)
+			m.blurAll()
+			// Signal parent to focus toolbar
+			return m, func() tea.Msg { return ToolbarFocusMsg{} }
 
 		case "tab", "down":
 			m.nextField()

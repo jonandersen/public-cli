@@ -163,10 +163,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "j", "enter":
 				// Exit toolbar, focus content
 				m.toolbarFocused = false
+				if m.currentView == ViewTrade {
+					return m, m.trade.RefocusCurrent()
+				}
 				return m, nil
 			case "esc":
 				// Esc in toolbar goes back to content
 				m.toolbarFocused = false
+				if m.currentView == ViewTrade {
+					return m, m.trade.RefocusCurrent()
+				}
 				return m, nil
 			case "1":
 				m.currentView = ViewPortfolio
@@ -189,7 +195,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "4":
 				m.currentView = ViewTrade
 				m.toolbarFocused = false
-				return m, nil
+				return m, m.trade.FocusSymbol()
 			case "5":
 				m.currentView = ViewOptions
 				m.toolbarFocused = false
@@ -327,6 +333,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "4":
 			m.currentView = ViewTrade
+			cmd := m.trade.FocusSymbol()
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		case "5":
 			m.currentView = ViewOptions
 		case "6":

@@ -303,6 +303,11 @@ func TestOrdersModel(t *testing.T) {
 func TestTradeModel(t *testing.T) {
 	tm := NewTradeModel()
 	assert.NotNil(t, tm)
+
+	// Initial state should have symbol field focused
+	assert.Equal(t, TradeFieldSymbol, tm.FocusedField, "initial focus should be on symbol")
+	assert.True(t, tm.SymbolInput.Focused(), "symbol input should be focused")
+
 	view := tm.View()
 	assert.Contains(t, view, "Place Order")
 	assert.Contains(t, view, "Symbol")
@@ -394,6 +399,36 @@ func TestTradeModelIsTextFieldFocused(t *testing.T) {
 	// LimitPrice is a text field
 	tm.FocusedField = TradeFieldLimitPrice
 	assert.True(t, tm.IsTextFieldFocused())
+}
+
+func TestTradeModelFocusSymbol(t *testing.T) {
+	tm := NewTradeModel()
+	// Move focus away from symbol
+	tm.FocusedField = TradeFieldSide
+	tm.SymbolInput.Blur()
+
+	// FocusSymbol should always refocus symbol and return a command
+	cmd := tm.FocusSymbol()
+	assert.Equal(t, TradeFieldSymbol, tm.FocusedField)
+	assert.True(t, tm.SymbolInput.Focused())
+	assert.NotNil(t, cmd, "should return blink command")
+
+	// Even with a symbol value, should still focus symbol
+	tm.FocusedField = TradeFieldQuantity
+	tm.SymbolInput.SetValue("AAPL")
+	tm.SymbolInput.Blur()
+
+	cmd = tm.FocusSymbol()
+	assert.Equal(t, TradeFieldSymbol, tm.FocusedField)
+	assert.True(t, tm.SymbolInput.Focused())
+	assert.NotNil(t, cmd, "should return blink command even with symbol")
+
+	// Should not focus symbol in success state
+	tm.FocusedField = TradeFieldSide
+	tm.State = TradeStateSuccess
+	cmd = tm.FocusSymbol()
+	assert.Equal(t, TradeFieldSide, tm.FocusedField)
+	assert.Nil(t, cmd, "should return nil in success state")
 }
 
 func TestOptionsModel(t *testing.T) {
