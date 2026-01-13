@@ -395,3 +395,112 @@ func TestTradeModelIsTextFieldFocused(t *testing.T) {
 	tm.FocusedField = TradeFieldLimitPrice
 	assert.True(t, tm.IsTextFieldFocused())
 }
+
+func TestOptionsModel(t *testing.T) {
+	om := NewOptionsModel()
+	assert.NotNil(t, om)
+	assert.Equal(t, OptionsStateIdle, om.State)
+	assert.Equal(t, OptionsFocusSymbol, om.Focus)
+}
+
+func TestOptionsModelInitialView(t *testing.T) {
+	om := NewOptionsModel()
+	view := om.View()
+	assert.Contains(t, view, "Options Chain")
+	assert.Contains(t, view, "Underlying")
+	assert.Contains(t, view, "Select a symbol")
+}
+
+func TestOptionsModelExpirationSelection(t *testing.T) {
+	om := NewOptionsModel()
+	om.State = OptionsStateSelectingExpiration
+	om.Symbol = "AAPL"
+	om.Expirations = []string{"2026-01-17", "2026-01-24", "2026-01-31"}
+	om.SelectedExpiration = 0
+
+	view := om.View()
+	assert.Contains(t, view, "Options Chain")
+	assert.Contains(t, view, "AAPL")
+	assert.Contains(t, view, "Select Expiration")
+	assert.Contains(t, view, "2026-01-17")
+}
+
+func TestOptionsModelLoadingChain(t *testing.T) {
+	om := NewOptionsModel()
+	om.State = OptionsStateLoadingChain
+	om.Symbol = "AAPL"
+
+	view := om.View()
+	assert.Contains(t, view, "Loading option chain")
+}
+
+func TestOptionsModelError(t *testing.T) {
+	om := NewOptionsModel()
+	om.State = OptionsStateError
+	om.Err = assert.AnError
+
+	view := om.View()
+	assert.Contains(t, view, "Error")
+}
+
+func TestOptionsModelFooterKeys(t *testing.T) {
+	om := NewOptionsModel()
+	keys := om.FooterKeys([]struct{ key, desc string }{})
+
+	// Idle state should have Enter, w, esc keys
+	assert.True(t, len(keys) >= 3)
+
+	// Check for expected keys
+	hasEnter := false
+	hasW := false
+	for _, k := range keys {
+		if k.key == "Enter" {
+			hasEnter = true
+		}
+		if k.key == "w" {
+			hasW = true
+		}
+	}
+	assert.True(t, hasEnter, "should have Enter key")
+	assert.True(t, hasW, "should have w key for watchlist")
+}
+
+func TestOptionsModelSetHeight(t *testing.T) {
+	om := NewOptionsModel()
+	om.SetHeight(20)
+	assert.Equal(t, 20, om.Height)
+}
+
+func TestOptionsModelHelpers(t *testing.T) {
+	// Test calculateDTE
+	dte := calculateDTE("2026-01-17")
+	assert.True(t, dte >= 0)
+
+	// Test formatOptPrice
+	assert.Equal(t, "1.50", formatOptPrice("1.5"))
+	assert.Equal(t, "-", formatOptPrice(""))
+	assert.Equal(t, "-", formatOptPrice("0"))
+
+	// Test formatGreek
+	assert.Equal(t, "0.50", formatGreek("0.5"))
+	assert.Equal(t, "-", formatGreek(""))
+
+	// Test formatIV
+	assert.Equal(t, "50.0%", formatIV("0.5"))
+	assert.Equal(t, "-", formatIV(""))
+
+	// Test parseStrikeFromOSI
+	strike := parseStrikeFromOSI("AAPL260117C00185000")
+	assert.Equal(t, float64(185), strike)
+}
+
+func TestOptionsViewSwitch(t *testing.T) {
+	m := New(testConfig(), testUIConfig(), testStore())
+	m.width = 80
+	m.height = 24
+	m.ready = true
+	m.currentView = ViewOptions
+
+	view := m.View()
+	assert.Contains(t, view, "Options")
+}

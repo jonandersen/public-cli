@@ -24,6 +24,7 @@ const (
 	ViewWatchlist
 	ViewOrders
 	ViewTrade
+	ViewOptions
 )
 
 // Model is the main bubbletea model for the TUI.
@@ -43,6 +44,7 @@ type Model struct {
 	watchlist *WatchlistModel
 	orders    *OrdersModel
 	trade     *TradeModel
+	options   *OptionsModel
 
 	// Refresh settings
 	refreshInterval time.Duration
@@ -68,6 +70,7 @@ func New(cfg *config.Config, uiCfg *UIConfig, store keyring.Store) Model {
 		watchlist:         NewWatchlistModel(uiCfg.Watchlist),
 		orders:            NewOrdersModel(),
 		trade:             NewTradeModel(),
+		options:           NewOptionsModel(),
 		refreshInterval:   30 * time.Second,
 		selectedAccountID: cfg.AccountUUID,
 	}
@@ -143,12 +146,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentView > ViewPortfolio {
 					m.currentView--
 				} else {
-					m.currentView = ViewTrade // Wrap around
+					m.currentView = ViewOptions // Wrap around
 				}
 				return m, nil
 			case "right", "l":
 				// Move to next tab
-				if m.currentView < ViewTrade {
+				if m.currentView < ViewOptions {
 					m.currentView++
 				} else {
 					m.currentView = ViewPortfolio // Wrap around
@@ -182,6 +185,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "4":
 				m.currentView = ViewTrade
+				m.toolbarFocused = false
+				return m, nil
+			case "5":
+				m.currentView = ViewOptions
 				m.toolbarFocused = false
 				return m, nil
 			case "q", "ctrl+c":
@@ -238,10 +245,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, FetchOrders(m.cfg, m.store))
 					}
 					return m, tea.Batch(cmds...)
+				case "5":
+					m.currentView = ViewOptions
+					return m, nil
 				}
 			}
 			// Pass input to trade model
 			m.trade, cmd = m.trade.Update(msg, m.cfg, m.store)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
+		// Handle options view - it manages its own input
+		if m.currentView == ViewOptions {
+			// Pass input to options model
+			m.options, cmd = m.options.Update(msg, m.cfg, m.store)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -288,6 +308,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "4":
 			m.currentView = ViewTrade
+		case "5":
+			m.currentView = ViewOptions
 		case "r":
 			// Manual refresh
 			switch m.currentView {
@@ -343,6 +365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.portfolio.SetHeight(tableHeight)
 		m.watchlist.SetHeight(tableHeight)
 		m.orders.SetHeight(tableHeight)
+		m.options.SetHeight(tableHeight)
 
 	case PortfolioLoadedMsg, PortfolioErrorMsg:
 		m.portfolio, cmd = m.portfolio.Update(msg)
@@ -358,6 +381,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TradeQuoteMsg, TradeQuoteErrorMsg, TradeOrderPlacedMsg, TradeOrderErrorMsg:
 		m.trade, cmd = m.trade.Update(msg, m.cfg, m.store)
+		cmds = append(cmds, cmd)
+
+	case OptionExpirationsLoadedMsg, OptionExpirationsErrorMsg, OptionChainLoadedMsg, OptionChainErrorMsg, OptionGreeksLoadedMsg, OptionQuoteLoadedMsg:
+		m.options, cmd = m.options.Update(msg, m.cfg, m.store)
 		cmds = append(cmds, cmd)
 
 	case AccountsLoadedMsg:
@@ -449,6 +476,7 @@ func (m Model) renderHeader() string {
 		{"Watchlist", "2", m.currentView == ViewWatchlist},
 		{"Orders", "3", m.currentView == ViewOrders},
 		{"Trade", "4", m.currentView == ViewTrade},
+		{"Options", "5", m.currentView == ViewOptions},
 	}
 
 	var tabStrs []string
@@ -544,6 +572,8 @@ func (m Model) renderContent() string {
 		content = m.orders.View()
 	case ViewTrade:
 		content = m.trade.View()
+	case ViewOptions:
+		content = m.options.View()
 	}
 	return ContentStyle.Render(content)
 }
@@ -588,7 +618,7 @@ func (m Model) renderFooter() string {
 		keys = []struct{ key, desc string }{
 			{"←/→", "switch tab"},
 			{"↓/enter", "focus content"},
-			{"1-4", "jump to tab"},
+			{"1-5", "jump to tab"},
 			{"q", "quit"},
 		}
 
@@ -611,7 +641,7 @@ func (m Model) renderFooter() string {
 			Render(footerContent)
 	}
 
-	keys = append(keys, struct{ key, desc string }{"1-4", "switch view"})
+	keys = append(keys, struct{ key, desc string }{"1-5", "switch view"})
 
 	// Add view-specific keys
 	switch m.currentView {
@@ -677,6 +707,8 @@ func (m Model) renderFooter() string {
 				{"n", "cancel"},
 			}
 		}
+	case ViewOptions:
+		keys = m.options.FooterKeys(keys)
 	}
 
 	keys = append(keys, struct{ key, desc string }{"q", "quit"})
