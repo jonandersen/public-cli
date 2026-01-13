@@ -105,6 +105,14 @@ type TradeModel struct {
 	// Order result
 	OrderID     string
 	OrderSymbol string
+
+	// Asset selector
+	AssetSelector     *AssetSelectorModel
+	ShowAssetSelector bool
+
+	// Watchlist data for asset selector (set by parent)
+	WatchlistSymbols []string
+	WatchlistQuotes  map[string]Quote
 }
 
 // NewTradeModel creates a new trade model.
@@ -177,10 +185,43 @@ func (m *TradeModel) IsTextFieldFocused() bool {
 	}
 }
 
+// SetWatchlistData sets the watchlist data for the asset selector.
+func (m *TradeModel) SetWatchlistData(symbols []string, quotes map[string]Quote) {
+	m.WatchlistSymbols = symbols
+	m.WatchlistQuotes = quotes
+}
+
 // Update handles messages for the trade view.
 func (m *TradeModel) Update(msg tea.Msg, cfg *config.Config, store keyring.Store) (*TradeModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
+
+	// Handle asset selector if open
+	if m.ShowAssetSelector {
+		switch msg := msg.(type) {
+		case AssetSelectedMsg:
+			m.ShowAssetSelector = false
+			m.SymbolInput.SetValue(msg.Symbol)
+			m.FocusedField = TradeFieldQuantity
+			m.SymbolInput.Blur()
+			m.QuantityInput.Focus()
+			// Reset quote state and fetch new quote
+			m.Quote = nil
+			m.QuoteLoaded = false
+			m.State = TradeStateFetchingQuote
+			return m, FetchTradeQuote(msg.Symbol, cfg, store)
+
+		case AssetSelectorCancelledMsg:
+			m.ShowAssetSelector = false
+			m.SymbolInput.Focus()
+			return m, nil
+
+		case tea.KeyMsg:
+			m.AssetSelector, cmd = m.AssetSelector.Update(msg, cfg, store)
+			return m, cmd
+		}
+		return m, nil
+	}
 
 	switch msg := msg.(type) {
 	case TradeQuoteMsg:
@@ -285,6 +326,15 @@ func (m *TradeModel) Update(msg tea.Msg, cfg *config.Config, store keyring.Store
 				} else {
 					m.OrderType = TradeOrderTypeMarket
 				}
+				return m, nil
+			}
+
+		case "w":
+			// Open asset selector when on symbol field
+			if m.FocusedField == TradeFieldSymbol {
+				m.AssetSelector = NewAssetSelectorModel(AssetSelectorModeWatchlist)
+				m.AssetSelector.SetWatchlistData(m.WatchlistSymbols, m.WatchlistQuotes)
+				m.ShowAssetSelector = true
 				return m, nil
 			}
 
@@ -465,6 +515,11 @@ func (m *TradeModel) estimatedCost() string {
 
 // View renders the trade view.
 func (m *TradeModel) View() string {
+	// Show asset selector if open
+	if m.ShowAssetSelector && m.AssetSelector != nil {
+		return m.AssetSelector.View()
+	}
+
 	var b strings.Builder
 
 	// Show success message
@@ -506,6 +561,8 @@ func (m *TradeModel) View() string {
 		b.WriteString(LabelStyle.Render(" (fetching quote...)"))
 	} else if m.QuoteLoaded && m.Quote != nil {
 		b.WriteString(LabelStyle.Render(fmt.Sprintf(" $%s", m.Quote.Last)))
+	} else if m.FocusedField == TradeFieldSymbol {
+		b.WriteString(LabelStyle.Render(" (press 'w' for watchlist)"))
 	}
 	b.WriteString("\n")
 	b.WriteString(m.renderTextInput(m.SymbolInput, m.FocusedField == TradeFieldSymbol))

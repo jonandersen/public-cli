@@ -195,6 +195,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "4":
 				m.currentView = ViewTrade
 				m.toolbarFocused = false
+				// Sync watchlist data for asset selector
+				m.trade.SetWatchlistData(m.watchlist.Symbols, m.watchlist.Quotes)
 				return m, m.trade.FocusSymbol()
 			case "5":
 				m.currentView = ViewOptions
@@ -333,6 +335,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "4":
 			m.currentView = ViewTrade
+			// Sync watchlist data for asset selector
+			m.trade.SetWatchlistData(m.watchlist.Symbols, m.watchlist.Quotes)
 			cmd := m.trade.FocusSymbol()
 			if cmd != nil {
 				cmds = append(cmds, cmd)
@@ -366,6 +370,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				symbol := m.watchlist.SelectedSymbol()
 				if symbol != "" {
 					m.trade.SetSymbol(symbol)
+					// Sync watchlist data for asset selector
+					m.trade.SetWatchlistData(m.watchlist.Symbols, m.watchlist.Quotes)
 					m.currentView = ViewTrade
 					// Fetch quote for the symbol
 					cmds = append(cmds, FetchTradeQuote(symbol, m.cfg, m.store))
@@ -431,6 +437,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TradeQuoteMsg, TradeQuoteErrorMsg, TradeOrderPlacedMsg, TradeOrderErrorMsg:
 		m.trade, cmd = m.trade.Update(msg, m.cfg, m.store)
 		cmds = append(cmds, cmd)
+
+	case AssetSelectedMsg, AssetSelectorCancelledMsg:
+		// Route asset selector messages to the appropriate view
+		if m.currentView == ViewTrade && m.trade.ShowAssetSelector {
+			m.trade, cmd = m.trade.Update(msg, m.cfg, m.store)
+			cmds = append(cmds, cmd)
+		} else if m.currentView == ViewOptions && m.options.ShowAssetSelector {
+			m.options, cmd = m.options.Update(msg, m.cfg, m.store)
+			cmds = append(cmds, cmd)
+		}
 
 	case OptionExpirationsLoadedMsg, OptionExpirationsErrorMsg, OptionChainLoadedMsg, OptionChainErrorMsg, OptionGreeksLoadedMsg, OptionQuoteLoadedMsg:
 		m.options, cmd = m.options.Update(msg, m.cfg, m.store)
