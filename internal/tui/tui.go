@@ -873,7 +873,7 @@ func (m Model) renderAccountPicker() string {
 // FetchAccounts returns a command that fetches the list of accounts.
 func FetchAccounts(cfg *config.Config, store keyring.Store) tea.Cmd {
 	return func() tea.Msg {
-		token, err := getAuthToken(store, cfg.APIBaseURL, false)
+		token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return AccountsErrorMsg{Err: err}
 		}

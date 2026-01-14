@@ -324,7 +324,7 @@ func FetchHistoryWithToken(cfg *config.Config, store keyring.Store, nextToken st
 			return HistoryErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL, false)
+		token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return HistoryErrorMsg{Err: err}
 		}

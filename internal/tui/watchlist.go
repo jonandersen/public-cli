@@ -317,7 +317,7 @@ func FetchWatchlistQuotes(symbols []string, cfg *config.Config, store keyring.St
 			return WatchlistErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL, false)
+		token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return WatchlistErrorMsg{Err: err}
 		}

@@ -1,14 +1,9 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/jonandersen/public-cli/internal/auth"
-	"github.com/jonandersen/public-cli/internal/keyring"
 )
 
 // formatGainLoss formats a gain/loss value with +/- prefix.
@@ -66,26 +61,4 @@ func formatVolume(vol string) string {
 	}
 
 	return result.String()
-}
-
-// getAuthToken retrieves an auth token from the keyring.
-// If forceRefresh is true, it bypasses the cache and gets a fresh token.
-func getAuthToken(store keyring.Store, baseURL string, forceRefresh bool) (string, error) {
-	secret, err := store.Get(keyring.ServiceName, keyring.KeySecretKey)
-	if err != nil {
-		if err == keyring.ErrNotFound {
-			return "", fmt.Errorf("CLI not configured. Run: pub configure")
-		}
-		return "", fmt.Errorf("failed to retrieve secret: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	token, err := auth.GetTokenWithRefresh(ctx, auth.TokenCachePath(), baseURL, secret, forceRefresh)
-	if err != nil {
-		return "", fmt.Errorf("failed to authenticate: %w", err)
-	}
-
-	return token.AccessToken, nil
 }

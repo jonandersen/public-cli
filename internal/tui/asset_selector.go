@@ -493,7 +493,7 @@ func (m *AssetSelectorModel) renderFooter() string {
 // FetchInstrumentInfo returns a command that fetches instrument information.
 func FetchInstrumentInfo(symbol string, cfg *config.Config, store keyring.Store) tea.Cmd {
 	return func() tea.Msg {
-		token, err := getAuthToken(store, cfg.APIBaseURL, false)
+		token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return AssetInstrumentErrorMsg{Symbol: symbol, Err: err}
 		}

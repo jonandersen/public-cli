@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jonandersen/public-cli/internal/api"
-	"github.com/jonandersen/public-cli/internal/auth"
 	"github.com/jonandersen/public-cli/internal/config"
 	"github.com/jonandersen/public-cli/internal/keyring"
 	"github.com/jonandersen/public-cli/internal/output"
@@ -218,28 +217,6 @@ func formatGainLoss(value string) string {
 	return "-$" + value[1:]
 }
 
-// getAuthToken retrieves the secret key and exchanges it for an access token.
-// If forceRefresh is true, it bypasses the cache and gets a fresh token.
-func getAuthToken(store keyring.Store, baseURL string, forceRefresh bool) (string, error) {
-	secret, err := store.Get(keyring.ServiceName, keyring.KeySecretKey)
-	if err != nil {
-		if err == keyring.ErrNotFound {
-			return "", fmt.Errorf("CLI not configured. Run: pub configure\nOr set PUB_SECRET_KEY environment variable")
-		}
-		return "", fmt.Errorf("failed to retrieve secret: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	token, err := auth.GetTokenWithRefresh(ctx, auth.TokenCachePath(), baseURL, secret, forceRefresh)
-	if err != nil {
-		return "", fmt.Errorf("failed to authenticate: %w", err)
-	}
-
-	return token.AccessToken, nil
-}
-
 func init() {
 	// Create a wrapper command that handles auth lazily
 	var opts accountOptions
@@ -261,7 +238,7 @@ Examples:
 
 			// Get auth token
 			store := keyring.NewEnvStore(keyring.NewSystemStore())
-			token, err := getAuthToken(store, cfg.APIBaseURL, false)
+			token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 			if err != nil {
 				return err
 			}
@@ -272,7 +249,7 @@ Examples:
 			opts.defaultAccountID = cfg.AccountUUID
 			// Create token refresher for 401 retry
 			opts.tokenRefresher = func() (string, error) {
-				return getAuthToken(store, cfg.APIBaseURL, true)
+				return api.GetAuthToken(store, cfg.APIBaseURL, true)
 			}
 			return nil
 		},

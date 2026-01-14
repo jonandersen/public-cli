@@ -9,8 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/jonandersen/public-cli/internal/keyring"
 )
 
 func TestAccountListCmd_Success(t *testing.T) {
@@ -339,69 +337,6 @@ func TestAccountPortfolioCmd_FlagOverridesDefault(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-}
-
-func TestGetAuthToken_NotConfigured(t *testing.T) {
-	store := keyring.NewMockStore() // Empty store - no secret key
-
-	_, err := getAuthToken(store, "https://api.public.com", false)
-	require.Error(t, err)
-
-	// Verify error message matches expected format
-	assert.Contains(t, err.Error(), "CLI not configured")
-	assert.Contains(t, err.Error(), "pub configure")
-	assert.Contains(t, err.Error(), "PUB_SECRET_KEY")
-}
-
-func TestGetAuthToken_KeyringError(t *testing.T) {
-	store := keyring.NewMockStore().WithGetError(assert.AnError)
-
-	_, err := getAuthToken(store, "https://api.public.com", false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to retrieve secret")
-}
-
-func TestGetAuthToken_Success(t *testing.T) {
-	// Use temp directory for token cache isolation
-	tempDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tempDir)
-
-	// Mock server returns a valid token
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/userapiauthservice/personal/access-tokens", r.URL.Path)
-		assert.Equal(t, http.MethodPost, r.Method)
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"accessToken": "test-access-token-123",
-		})
-	}))
-	defer server.Close()
-
-	store := keyring.NewMockStore().WithData(keyring.ServiceName, keyring.KeySecretKey, "test-secret-key")
-
-	token, err := getAuthToken(store, server.URL, false)
-	require.NoError(t, err)
-	assert.Equal(t, "test-access-token-123", token)
-}
-
-func TestGetAuthToken_ExchangeError(t *testing.T) {
-	// Use temp directory for token cache isolation
-	tempDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tempDir)
-
-	// Mock server returns an error
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error": "invalid secret"}`))
-	}))
-	defer server.Close()
-
-	store := keyring.NewMockStore().WithData(keyring.ServiceName, keyring.KeySecretKey, "bad-secret")
-
-	_, err := getAuthToken(store, server.URL, false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to authenticate")
 }
 
 func TestFormatGainLoss(t *testing.T) {

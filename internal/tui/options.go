@@ -931,7 +931,7 @@ func FetchOptionExpirations(symbol string, cfg *config.Config, store keyring.Sto
 			return OptionExpirationsErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL, false)
+		token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return OptionExpirationsErrorMsg{Err: err}
 		}
@@ -958,7 +958,7 @@ func FetchOptionChain(symbol, expiration string, cfg *config.Config, store keyri
 			return OptionChainErrorMsg{Err: fmt.Errorf("no account configured")}
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL, false)
+		token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return OptionChainErrorMsg{Err: err}
 		}
@@ -983,7 +983,7 @@ func FetchOptionGreeks(symbols []string, cfg *config.Config, store keyring.Store
 			return nil
 		}
 
-		token, err := getAuthToken(store, cfg.APIBaseURL, false)
+		token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
 		if err != nil {
 			return nil
 		}
