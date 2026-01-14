@@ -26,100 +26,6 @@ type orderOptions struct {
 	jsonMode       bool
 }
 
-// OrderRequest represents an order placement request.
-type OrderRequest struct {
-	OrderID    string          `json:"orderId"`
-	Instrument OrderInstrument `json:"instrument"`
-	OrderSide  string          `json:"orderSide"`
-	OrderType  string          `json:"orderType"`
-	Expiration OrderExpiration `json:"expiration"`
-	Quantity   string          `json:"quantity,omitempty"`
-	Amount     string          `json:"amount,omitempty"`
-	LimitPrice string          `json:"limitPrice,omitempty"`
-	StopPrice  string          `json:"stopPrice,omitempty"`
-}
-
-// OrderInstrument represents the instrument being traded.
-type OrderInstrument struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// OrderExpiration represents order time-in-force.
-type OrderExpiration struct {
-	TimeInForce string `json:"timeInForce"`
-}
-
-// OrderResponse represents the API response for order placement.
-type OrderResponse struct {
-	OrderID string `json:"orderId"`
-}
-
-// PreflightRequest represents a preflight request to estimate order costs.
-type PreflightRequest struct {
-	Instrument OrderInstrument `json:"instrument"`
-	OrderSide  string          `json:"orderSide"`
-	OrderType  string          `json:"orderType"`
-	Expiration OrderExpiration `json:"expiration"`
-	Quantity   string          `json:"quantity,omitempty"`
-	LimitPrice string          `json:"limitPrice,omitempty"`
-	StopPrice  string          `json:"stopPrice,omitempty"`
-}
-
-// RegulatoryFees represents the breakdown of regulatory fees.
-type RegulatoryFees struct {
-	SECFee string `json:"secFee"`
-	TAFFee string `json:"tafFee"`
-	ORFFee string `json:"orfFee"`
-}
-
-// PreflightResponse represents the API response for preflight estimation.
-type PreflightResponse struct {
-	Instrument             OrderInstrument `json:"instrument"`
-	EstimatedCommission    string          `json:"estimatedCommission"`
-	RegulatoryFees         RegulatoryFees  `json:"regulatoryFees"`
-	EstimatedCost          string          `json:"estimatedCost"`
-	BuyingPowerRequirement string          `json:"buyingPowerRequirement"`
-	OrderValue             string          `json:"orderValue"`
-	EstimatedQuantity      string          `json:"estimatedQuantity"`
-}
-
-// OrderStatusResponse represents the API response for order status.
-type OrderStatusResponse struct {
-	OrderID        string          `json:"orderId"`
-	Instrument     OrderInstrument `json:"instrument"`
-	CreatedAt      string          `json:"createdAt"`
-	Type           string          `json:"type"`
-	Side           string          `json:"side"`
-	Status         string          `json:"status"`
-	Quantity       string          `json:"quantity"`
-	LimitPrice     string          `json:"limitPrice,omitempty"`
-	StopPrice      string          `json:"stopPrice,omitempty"`
-	FilledQuantity string          `json:"filledQuantity"`
-	AveragePrice   string          `json:"averagePrice,omitempty"`
-	ClosedAt       string          `json:"closedAt,omitempty"`
-}
-
-// OpenOrder represents an open order from the portfolio API.
-type OpenOrder struct {
-	OrderID        string          `json:"orderId"`
-	Instrument     OrderInstrument `json:"instrument"`
-	Side           string          `json:"side"`
-	Type           string          `json:"type"`
-	Status         string          `json:"status"`
-	Quantity       string          `json:"quantity"`
-	FilledQuantity string          `json:"filledQuantity"`
-	LimitPrice     string          `json:"limitPrice,omitempty"`
-	StopPrice      string          `json:"stopPrice,omitempty"`
-	CreatedAt      string          `json:"createdAt"`
-}
-
-// OrderListResponse represents the portfolio API response containing orders.
-type OrderListResponse struct {
-	AccountID string      `json:"accountId"`
-	Orders    []OpenOrder `json:"orders"`
-}
-
 // newOrderCmd creates the parent order command.
 func newOrderCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -290,7 +196,7 @@ func runOrderStatus(cmd *cobra.Command, opts orderOptions, orderID string) error
 		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	var orderStatus OrderStatusResponse
+	var orderStatus api.OrderStatusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&orderStatus); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -429,7 +335,7 @@ func runOrderList(cmd *cobra.Command, opts orderOptions) error {
 		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	var orderList OrderListResponse
+	var orderList api.OrderListResponse
 	if err := json.NewDecoder(resp.Body).Decode(&orderList); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -466,7 +372,7 @@ func runOrderList(cmd *cobra.Command, opts orderOptions) error {
 }
 
 // sumFees calculates the total regulatory fees.
-func sumFees(fees RegulatoryFees) string {
+func sumFees(fees api.RegulatoryFees) string {
 	var total float64
 	if v, err := parseFloat(fees.SECFee); err == nil {
 		total += v
@@ -541,7 +447,7 @@ func determineOrderType(limitPrice, stopPrice string) string {
 }
 
 // runPreflight calls the preflight API to get estimated costs for an order.
-func runPreflight(opts orderOptions, symbol, side string, params orderParams) (*PreflightResponse, error) {
+func runPreflight(opts orderOptions, symbol, side string, params orderParams) (*api.PreflightResponse, error) {
 	orderType := determineOrderType(params.limitPrice, params.stopPrice)
 
 	// Validate expiration
@@ -550,14 +456,14 @@ func runPreflight(opts orderOptions, symbol, side string, params orderParams) (*
 		expiration = "DAY"
 	}
 
-	preflightReq := PreflightRequest{
-		Instrument: OrderInstrument{
+	preflightReq := api.PreflightRequest{
+		Instrument: api.OrderInstrument{
 			Symbol: strings.ToUpper(symbol),
 			Type:   "EQUITY",
 		},
 		OrderSide: side,
 		OrderType: orderType,
-		Expiration: OrderExpiration{
+		Expiration: api.OrderExpiration{
 			TimeInForce: expiration,
 		},
 		Quantity:   params.quantity,
@@ -586,7 +492,7 @@ func runPreflight(opts orderOptions, symbol, side string, params orderParams) (*
 		return nil, fmt.Errorf("preflight API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	var preflightResp PreflightResponse
+	var preflightResp api.PreflightResponse
 	if err := json.NewDecoder(resp.Body).Decode(&preflightResp); err != nil {
 		return nil, fmt.Errorf("failed to decode preflight response: %w", err)
 	}
@@ -663,15 +569,15 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side string, params
 	defer cancel()
 
 	// Build order request
-	orderReq := OrderRequest{
+	orderReq := api.OrderRequest{
 		OrderID: orderID,
-		Instrument: OrderInstrument{
+		Instrument: api.OrderInstrument{
 			Symbol: symbol,
 			Type:   "EQUITY",
 		},
 		OrderSide: side,
 		OrderType: orderType,
-		Expiration: OrderExpiration{
+		Expiration: api.OrderExpiration{
 			TimeInForce: expiration,
 		},
 		Quantity:   params.quantity,
@@ -697,7 +603,7 @@ func runOrder(cmd *cobra.Command, opts orderOptions, symbol, side string, params
 		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	var orderResp OrderResponse
+	var orderResp api.OrderResponse
 	if err := json.NewDecoder(resp.Body).Decode(&orderResp); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}

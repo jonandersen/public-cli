@@ -23,33 +23,6 @@ type historyOptions struct {
 	defaultAccountID string
 }
 
-// Transaction represents a single transaction in account history.
-type Transaction struct {
-	ID              string `json:"id"`
-	Timestamp       string `json:"timestamp"`
-	Type            string `json:"type"`
-	SubType         string `json:"subType"`
-	AccountNumber   string `json:"accountNumber"`
-	Symbol          string `json:"symbol"`
-	SecurityType    string `json:"securityType"`
-	Side            string `json:"side"`
-	Description     string `json:"description"`
-	NetAmount       string `json:"netAmount"`
-	PrincipalAmount string `json:"principalAmount"`
-	Quantity        string `json:"quantity"`
-	Direction       string `json:"direction"`
-	Fees            string `json:"fees"`
-}
-
-// HistoryResponse represents the API response for account history.
-type HistoryResponse struct {
-	Transactions []Transaction `json:"transactions"`
-	NextToken    string        `json:"nextToken"`
-	Start        string        `json:"start"`
-	End          string        `json:"end"`
-	PageSize     int           `json:"pageSize"`
-}
-
 // newHistoryCmd creates the history command with the given options.
 func newHistoryCmd(opts historyOptions) *cobra.Command {
 	var (
@@ -122,7 +95,7 @@ func runHistory(cmd *cobra.Command, opts historyOptions, accountID, start, end s
 		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
 	}
 
-	var historyResp HistoryResponse
+	var historyResp api.HistoryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&historyResp); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}

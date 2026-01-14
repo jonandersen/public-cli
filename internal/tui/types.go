@@ -1,157 +1,44 @@
 package tui
 
-// Portfolio represents a portfolio response from the API.
-type Portfolio struct {
-	AccountID   string      `json:"accountId"`
-	AccountType string      `json:"accountType"`
-	BuyingPower BuyingPower `json:"buyingPower"`
-	Equity      []Equity    `json:"equity"`
-	Positions   []Position  `json:"positions"`
-}
+import "github.com/jonandersen/public-cli/internal/api"
 
-// BuyingPower represents buying power information.
-type BuyingPower struct {
-	CashOnlyBuyingPower string `json:"cashOnlyBuyingPower"`
-	BuyingPower         string `json:"buyingPower"`
-	OptionsBuyingPower  string `json:"optionsBuyingPower"`
-}
+// Type aliases for API models - allows TUI code to use short names
+// while the actual types are defined in internal/api/models.go
 
-// Equity represents an equity breakdown item.
-type Equity struct {
-	Type                  string `json:"type"`
-	Value                 string `json:"value"`
-	PercentageOfPortfolio string `json:"percentageOfPortfolio"`
-}
+// Portfolio types
+type (
+	Portfolio   = api.Portfolio
+	BuyingPower = api.BuyingPower
+	Equity      = api.Equity
+	Position    = api.Position
+	Instrument  = api.Instrument
+	Price       = api.Price
+	Gain        = api.Gain
+	CostBasis   = api.CostBasis
+)
 
-// Position represents a portfolio position.
-type Position struct {
-	Instrument         Instrument `json:"instrument"`
-	Quantity           string     `json:"quantity"`
-	CurrentValue       string     `json:"currentValue"`
-	PercentOfPortfolio string     `json:"percentOfPortfolio"`
-	LastPrice          Price      `json:"lastPrice"`
-	InstrumentGain     Gain       `json:"instrumentGain"`
-	PositionDailyGain  Gain       `json:"positionDailyGain"`
-	CostBasis          CostBasis  `json:"costBasis"`
-}
+// Quote types
+type (
+	QuoteRequest    = api.QuoteRequest
+	QuoteInstrument = api.QuoteInstrument
+	QuotesResponse  = api.QuotesResponse
+	Quote           = api.Quote
+)
 
-// Instrument represents a trading instrument.
-type Instrument struct {
-	Symbol string `json:"symbol"`
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-}
+// Order types
+type (
+	Order          = api.Order
+	OrdersResponse = api.OrdersResponse
+)
 
-// Price represents a price with timestamp.
-type Price struct {
-	LastPrice string `json:"lastPrice"`
-	Timestamp string `json:"timestamp"`
-}
+// Account types
+type (
+	Account          = api.Account
+	AccountsResponse = api.AccountsResponse
+)
 
-// Gain represents a gain/loss value with percentage.
-type Gain struct {
-	GainValue      string `json:"gainValue"`
-	GainPercentage string `json:"gainPercentage"`
-	Timestamp      string `json:"timestamp"`
-}
-
-// CostBasis represents cost basis information.
-type CostBasis struct {
-	TotalCost      string `json:"totalCost"`
-	UnitCost       string `json:"unitCost"`
-	GainValue      string `json:"gainValue"`
-	GainPercentage string `json:"gainPercentage"`
-	LastUpdate     string `json:"lastUpdate"`
-}
-
-// QuoteRequest represents a request for quotes.
-type QuoteRequest struct {
-	Instruments []QuoteInstrument `json:"instruments"`
-}
-
-// QuoteInstrument represents an instrument to quote.
-type QuoteInstrument struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// QuotesResponse represents the API response for quotes.
-type QuotesResponse struct {
-	Quotes []Quote `json:"quotes"`
-}
-
-// Quote represents a single quote.
-type Quote struct {
-	Instrument    QuoteInstrument `json:"instrument"`
-	Outcome       string          `json:"outcome"`
-	Last          string          `json:"last"`
-	LastTimestamp string          `json:"lastTimestamp"`
-	Bid           string          `json:"bid"`
-	BidSize       int             `json:"bidSize"`
-	BidTimestamp  string          `json:"bidTimestamp"`
-	Ask           string          `json:"ask"`
-	AskSize       int             `json:"askSize"`
-	AskTimestamp  string          `json:"askTimestamp"`
-	Volume        int64           `json:"volume"`
-	OpenInterest  *int64          `json:"openInterest"`
-}
-
-// Order represents an open order from the API.
-type Order struct {
-	OrderID        string     `json:"orderId"`
-	Instrument     Instrument `json:"instrument"`
-	Side           string     `json:"side"`
-	Type           string     `json:"type"`
-	Status         string     `json:"status"`
-	Quantity       string     `json:"quantity"`
-	FilledQuantity string     `json:"filledQuantity"`
-	LimitPrice     string     `json:"limitPrice,omitempty"`
-	StopPrice      string     `json:"stopPrice,omitempty"`
-	CreatedAt      string     `json:"createdAt"`
-}
-
-// OrdersResponse represents the portfolio API response containing orders.
-type OrdersResponse struct {
-	Orders []Order `json:"orders"`
-}
-
-// Account represents a Public.com account.
-type Account struct {
-	AccountID            string `json:"accountId"`
-	AccountType          string `json:"accountType"`
-	OptionsLevel         string `json:"optionsLevel"`
-	BrokerageAccountType string `json:"brokerageAccountType"`
-	TradePermissions     string `json:"tradePermissions"`
-}
-
-// AccountsResponse represents the API response for listing accounts.
-type AccountsResponse struct {
-	Accounts []Account `json:"accounts"`
-}
-
-// Transaction represents a single transaction in account history.
-type Transaction struct {
-	ID              string `json:"id"`
-	Timestamp       string `json:"timestamp"`
-	Type            string `json:"type"`
-	SubType         string `json:"subType"`
-	AccountNumber   string `json:"accountNumber"`
-	Symbol          string `json:"symbol"`
-	SecurityType    string `json:"securityType"`
-	Side            string `json:"side"`
-	Description     string `json:"description"`
-	NetAmount       string `json:"netAmount"`
-	PrincipalAmount string `json:"principalAmount"`
-	Quantity        string `json:"quantity"`
-	Direction       string `json:"direction"`
-	Fees            string `json:"fees"`
-}
-
-// HistoryResponse represents the API response for account history.
-type HistoryResponse struct {
-	Transactions []Transaction `json:"transactions"`
-	NextToken    string        `json:"nextToken"`
-	Start        string        `json:"start"`
-	End          string        `json:"end"`
-	PageSize     int           `json:"pageSize"`
-}
+// History types
+type (
+	Transaction     = api.Transaction
+	HistoryResponse = api.HistoryResponse
+)

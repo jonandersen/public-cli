@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jonandersen/public-cli/internal/api"
 )
 
 func TestOrderBuyCmd_Success(t *testing.T) {
@@ -19,8 +21,8 @@ func TestOrderBuyCmd_Success(t *testing.T) {
 
 		if strings.Contains(r.URL.Path, "preflight") {
 			// Preflight request
-			resp := PreflightResponse{
-				Instrument:          OrderInstrument{Symbol: "AAPL", Type: "EQUITY"},
+			resp := api.PreflightResponse{
+				Instrument:          api.OrderInstrument{Symbol: "AAPL", Type: "EQUITY"},
 				EstimatedCommission: "0.00",
 				EstimatedCost:       "1755.00",
 				OrderValue:          "1755.00",
@@ -1092,13 +1094,13 @@ func TestRunPreflight_Success(t *testing.T) {
 		assert.Equal(t, "AAPL", instrument["symbol"])
 		assert.Equal(t, "EQUITY", instrument["type"])
 
-		resp := PreflightResponse{
-			Instrument: OrderInstrument{
+		resp := api.PreflightResponse{
+			Instrument: api.OrderInstrument{
 				Symbol: "AAPL",
 				Type:   "EQUITY",
 			},
 			EstimatedCommission: "0.00",
-			RegulatoryFees: RegulatoryFees{
+			RegulatoryFees: api.RegulatoryFees{
 				SECFee: "0.01",
 				TAFFee: "0.00",
 				ORFFee: "0.00",
@@ -1141,13 +1143,13 @@ func TestRunPreflight_LimitOrder(t *testing.T) {
 		assert.Equal(t, "LIMIT", req["orderType"])
 		assert.Equal(t, "175.00", req["limitPrice"])
 
-		resp := PreflightResponse{
-			Instrument: OrderInstrument{
+		resp := api.PreflightResponse{
+			Instrument: api.OrderInstrument{
 				Symbol: "AAPL",
 				Type:   "EQUITY",
 			},
 			EstimatedCommission:    "0.00",
-			RegulatoryFees:         RegulatoryFees{},
+			RegulatoryFees:         api.RegulatoryFees{},
 			EstimatedCost:          "1750.00",
 			BuyingPowerRequirement: "1750.00",
 			OrderValue:             "1750.00",
@@ -1202,13 +1204,13 @@ func TestOrderBuyCmd_ShowsPreflightCost(t *testing.T) {
 		requestCount++
 		if strings.Contains(r.URL.Path, "preflight") {
 			// Preflight request
-			resp := PreflightResponse{
-				Instrument: OrderInstrument{
+			resp := api.PreflightResponse{
+				Instrument: api.OrderInstrument{
 					Symbol: "AAPL",
 					Type:   "EQUITY",
 				},
 				EstimatedCommission: "0.00",
-				RegulatoryFees: RegulatoryFees{
+				RegulatoryFees: api.RegulatoryFees{
 					SECFee: "0.01",
 					TAFFee: "0.00",
 					ORFFee: "0.00",
@@ -1257,13 +1259,13 @@ func TestOrderCmd_PreviewShowsPreflightCost(t *testing.T) {
 		// Only preflight should be called (not order) since we don't confirm
 		assert.Contains(t, r.URL.Path, "preflight")
 
-		resp := PreflightResponse{
-			Instrument: OrderInstrument{
+		resp := api.PreflightResponse{
+			Instrument: api.OrderInstrument{
 				Symbol: "AAPL",
 				Type:   "EQUITY",
 			},
 			EstimatedCommission: "0.00",
-			RegulatoryFees: RegulatoryFees{
+			RegulatoryFees: api.RegulatoryFees{
 				SECFee: "0.02",
 				TAFFee: "0.01",
 				ORFFee: "0.00",

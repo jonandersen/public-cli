@@ -25,38 +25,6 @@ type quoteOptions struct {
 	jsonMode  bool
 }
 
-// QuoteRequest represents a request for quotes.
-type QuoteRequest struct {
-	Instruments []QuoteInstrument `json:"instruments"`
-}
-
-// QuoteInstrument represents an instrument to quote.
-type QuoteInstrument struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// QuotesResponse represents the API response for quotes.
-type QuotesResponse struct {
-	Quotes []Quote `json:"quotes"`
-}
-
-// Quote represents a single quote.
-type Quote struct {
-	Instrument    QuoteInstrument `json:"instrument"`
-	Outcome       string          `json:"outcome"`
-	Last          string          `json:"last"`
-	LastTimestamp string          `json:"lastTimestamp"`
-	Bid           string          `json:"bid"`
-	BidSize       int             `json:"bidSize"`
-	BidTimestamp  string          `json:"bidTimestamp"`
-	Ask           string          `json:"ask"`
-	AskSize       int             `json:"askSize"`
-	AskTimestamp  string          `json:"askTimestamp"`
-	Volume        int64           `json:"volume"`
-	OpenInterest  *int64          `json:"openInterest"`
-}
-
 // newQuoteCmd creates the quote command with the given options.
 func newQuoteCmd(opts quoteOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -90,15 +58,15 @@ func runQuote(cmd *cobra.Command, opts quoteOptions, symbols []string) error {
 	defer cancel()
 
 	// Build request
-	instruments := make([]QuoteInstrument, 0, len(symbols))
+	instruments := make([]api.QuoteInstrument, 0, len(symbols))
 	for _, sym := range symbols {
-		instruments = append(instruments, QuoteInstrument{
+		instruments = append(instruments, api.QuoteInstrument{
 			Symbol: strings.ToUpper(sym),
 			Type:   "EQUITY",
 		})
 	}
 
-	reqBody := QuoteRequest{Instruments: instruments}
+	reqBody := api.QuoteRequest{Instruments: instruments}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
@@ -117,7 +85,7 @@ func runQuote(cmd *cobra.Command, opts quoteOptions, symbols []string) error {
 		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	var quotesResp QuotesResponse
+	var quotesResp api.QuotesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&quotesResp); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}

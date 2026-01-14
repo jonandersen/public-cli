@@ -275,7 +275,7 @@ func promptAccountSelection(cmd *cobra.Command, opts configureOptions, accessTok
 		return "", fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
 	}
 
-	var accountsResp AccountsResponse
+	var accountsResp api.AccountsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&accountsResp); err != nil {
 		return "", err
 	}
