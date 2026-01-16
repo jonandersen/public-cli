@@ -15,6 +15,7 @@ import (
 	"github.com/jonandersen/public-cli/internal/config"
 	"github.com/jonandersen/public-cli/internal/keyring"
 	"github.com/jonandersen/public-cli/internal/output"
+	"github.com/jonandersen/public-cli/pkg/publicapi"
 )
 
 // quoteOptions holds dependencies for the quote command.
@@ -116,36 +117,11 @@ func runQuote(cmd *cobra.Command, opts quoteOptions, symbols []string) error {
 			q.Last,
 			q.Bid,
 			q.Ask,
-			formatVolume(q.Volume),
+			publicapi.FormatVolume(q.Volume),
 		})
 	}
 
 	return formatter.Table(headers, rows)
-}
-
-// formatVolume formats volume with thousand separators.
-func formatVolume(vol int64) string {
-	if vol == 0 {
-		return "-"
-	}
-	s := fmt.Sprintf("%d", vol)
-	// Add thousand separators
-	n := len(s)
-	if n <= 3 {
-		return s
-	}
-	// Calculate how many commas we need
-	numCommas := (n - 1) / 3
-	result := make([]byte, n+numCommas)
-	for i, j := n-1, len(result)-1; i >= 0; i-- {
-		result[j] = s[i]
-		j--
-		if (n-i)%3 == 0 && i > 0 {
-			result[j] = ','
-			j--
-		}
-	}
-	return string(result)
 }
 
 func init() {

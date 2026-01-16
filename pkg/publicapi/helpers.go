@@ -1,4 +1,5 @@
-package tui
+// Package publicapi provides shared utilities for the Public.com API client.
+package publicapi
 
 import (
 	"fmt"
@@ -6,8 +7,9 @@ import (
 	"strings"
 )
 
-// formatGainLoss formats a gain/loss value with +/- prefix.
-func formatGainLoss(value string) string {
+// FormatGainLoss formats a gain/loss value with +/- prefix.
+// Returns "$0.00" for empty, zero, or invalid values.
+func FormatGainLoss(value string) string {
 	if value == "" || value == "0" || value == "0.00" {
 		return "$0.00"
 	}
@@ -21,24 +23,14 @@ func formatGainLoss(value string) string {
 	return fmt.Sprintf("-$%.2f", -f)
 }
 
-// formatVolume formats a volume number with thousand separators.
-func formatVolume(vol string) string {
-	if vol == "" || vol == "0" {
+// FormatVolume formats a volume number with thousand separators.
+// Returns "-" for zero values.
+func FormatVolume(vol int64) string {
+	if vol == 0 {
 		return "-"
 	}
 
-	// Parse as int64
-	v, err := strconv.ParseInt(vol, 10, 64)
-	if err != nil {
-		return vol
-	}
-
-	if v == 0 {
-		return "-"
-	}
-
-	// Format with thousand separators
-	str := strconv.FormatInt(v, 10)
+	str := strconv.FormatInt(vol, 10)
 	n := len(str)
 	if n <= 3 {
 		return str

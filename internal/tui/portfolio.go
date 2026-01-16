@@ -15,6 +15,7 @@ import (
 	"github.com/jonandersen/public-cli/internal/api"
 	"github.com/jonandersen/public-cli/internal/config"
 	"github.com/jonandersen/public-cli/internal/keyring"
+	"github.com/jonandersen/public-cli/pkg/publicapi"
 )
 
 // PortfolioState represents the loading state of portfolio data.
@@ -108,9 +109,9 @@ func (m *PortfolioModel) updateTable() {
 			pos.Quantity,
 			"$" + pos.LastPrice.LastPrice,
 			"$" + pos.CurrentValue,
-			formatGainLoss(pos.PositionDailyGain.GainValue),
+			publicapi.FormatGainLoss(pos.PositionDailyGain.GainValue),
 			pos.PositionDailyGain.GainPercentage + "%",
-			formatGainLoss(totalGainValue),
+			publicapi.FormatGainLoss(totalGainValue),
 			totalGainPct + "%",
 		})
 	}

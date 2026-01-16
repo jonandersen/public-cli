@@ -13,6 +13,7 @@ import (
 	"github.com/jonandersen/public-cli/internal/config"
 	"github.com/jonandersen/public-cli/internal/keyring"
 	"github.com/jonandersen/public-cli/internal/output"
+	"github.com/jonandersen/public-cli/pkg/publicapi"
 )
 
 // accountOptions holds dependencies for the account command.
@@ -196,25 +197,14 @@ func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) err
 			pos.Instrument.Symbol,
 			pos.Quantity,
 			"$" + pos.CurrentValue,
-			formatGainLoss(pos.PositionDailyGain.GainValue),
+			publicapi.FormatGainLoss(pos.PositionDailyGain.GainValue),
 			pos.PositionDailyGain.GainPercentage + "%",
-			formatGainLoss(totalGainValue),
+			publicapi.FormatGainLoss(totalGainValue),
 			totalGainPct + "%",
 		})
 	}
 
 	return formatter.Table(headers, rows)
-}
-
-// formatGainLoss formats a gain/loss value with a + prefix for positive values.
-func formatGainLoss(value string) string {
-	if value == "" || value == "0" || value == "0.00" {
-		return "$0.00"
-	}
-	if value[0] != '-' {
-		return "+$" + value
-	}
-	return "-$" + value[1:]
 }
 
 func init() {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/jonandersen/public-cli/internal/api"
 	"github.com/jonandersen/public-cli/internal/config"
 	"github.com/jonandersen/public-cli/internal/keyring"
+	"github.com/jonandersen/public-cli/pkg/publicapi"
 )
 
 // WatchlistState represents the loading state of watchlist data.
@@ -217,7 +217,7 @@ func (m *WatchlistModel) updateTable() {
 				"$" + quote.Last,
 				"$" + quote.Bid,
 				"$" + quote.Ask,
-				formatVolume(strconv.FormatInt(quote.Volume, 10)),
+				publicapi.FormatVolume(quote.Volume),
 			})
 		} else {
 			rows = append(rows, table.Row{
