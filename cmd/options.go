@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,110 @@ import (
 	"github.com/jonandersen/public-cli/internal/config"
 	"github.com/jonandersen/public-cli/internal/keyring"
 )
+
+// chainFilter holds filtering options for the options chain command.
+type chainFilter struct {
+	minStrike float64
+	maxStrike float64
+	minOI     int
+	minVolume int
+	callsOnly bool
+	putsOnly  bool
+	strikes   int // N strikes around ATM (requires underlying price)
+}
+
+// filterOptions filters a slice of OptionQuote based on the given criteria.
+func filterOptions(options []api.OptionQuote, filter chainFilter) []api.OptionQuote {
+	if len(options) == 0 {
+		return options
+	}
+
+	var filtered []api.OptionQuote
+	for _, opt := range options {
+		strike := parseStrikeFloat(opt.Instrument.Symbol)
+
+		// Strike range filter
+		if filter.minStrike > 0 && strike < filter.minStrike {
+			continue
+		}
+		if filter.maxStrike > 0 && strike > filter.maxStrike {
+			continue
+		}
+
+		// Open interest filter
+		if filter.minOI > 0 && opt.OpenInterest < filter.minOI {
+			continue
+		}
+
+		// Volume filter
+		if filter.minVolume > 0 && opt.Volume < filter.minVolume {
+			continue
+		}
+
+		filtered = append(filtered, opt)
+	}
+
+	return filtered
+}
+
+// filterStrikesAroundATM filters options to N strikes centered around the ATM strike.
+// underlyingPrice is the current price of the underlying stock.
+func filterStrikesAroundATM(options []api.OptionQuote, n int, underlyingPrice float64) []api.OptionQuote {
+	if len(options) == 0 || n <= 0 {
+		return options
+	}
+
+	// Find the ATM strike (closest to underlying price)
+	var closestIdx int
+	closestDiff := float64(1e12)
+	for i, opt := range options {
+		strike := parseStrikeFloat(opt.Instrument.Symbol)
+		diff := abs(strike - underlyingPrice)
+		if diff < closestDiff {
+			closestDiff = diff
+			closestIdx = i
+		}
+	}
+
+	// Take n/2 below and n/2 above ATM
+	half := n / 2
+	startIdx := closestIdx - half
+	endIdx := closestIdx + half + (n % 2) // Add 1 more if n is odd
+
+	if startIdx < 0 {
+		endIdx += -startIdx
+		startIdx = 0
+	}
+	if endIdx > len(options) {
+		startIdx -= endIdx - len(options)
+		endIdx = len(options)
+	}
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	return options[startIdx:endIdx]
+}
+
+// parseStrikeFloat extracts the strike price as a float from an OSI option symbol.
+func parseStrikeFloat(symbol string) float64 {
+	if len(symbol) < 8 {
+		return 0
+	}
+	strikeStr := symbol[len(symbol)-8:]
+	var strike int64
+	if _, err := fmt.Sscanf(strikeStr, "%d", &strike); err != nil {
+		return 0
+	}
+	return float64(strike) / 1000.0
+}
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
 
 // optionsOptions holds dependencies for options commands.
 type optionsOptions struct {
@@ -165,6 +271,7 @@ func runOptionsExpirations(cmd *cobra.Command, opts optionsOptions, symbol strin
 }
 
 // newOptionsChainCmd creates the options chain command with the given options.
+// Note: This function is unused; the actual chain command is created inline in init().
 func newOptionsChainCmd(opts optionsOptions) *cobra.Command {
 	var expiration string
 
@@ -184,7 +291,7 @@ Examples:
 			if expiration == "" {
 				return fmt.Errorf("expiration date is required (use --expiration flag)")
 			}
-			return runOptionsChain(cmd, opts, args[0], expiration)
+			return runOptionsChain(cmd, opts, args[0], expiration, chainFilter{})
 		},
 	}
 
@@ -194,7 +301,7 @@ Examples:
 	return cmd
 }
 
-func runOptionsChain(cmd *cobra.Command, opts optionsOptions, symbol, expiration string) error {
+func runOptionsChain(cmd *cobra.Command, opts optionsOptions, symbol, expiration string, filter chainFilter) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -204,26 +311,85 @@ func runOptionsChain(cmd *cobra.Command, opts optionsOptions, symbol, expiration
 		return err
 	}
 
-	if len(chainResp.Calls) == 0 && len(chainResp.Puts) == 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No options available for %s expiring %s\n", chainResp.BaseSymbol, expiration)
+	// Get underlying price if we need to filter by strikes around ATM
+	var underlyingPrice float64
+	if filter.strikes > 0 {
+		instruments := []api.QuoteInstrument{{Symbol: strings.ToUpper(symbol), Type: "EQUITY"}}
+		quotes, err := client.GetQuotes(ctx, opts.accountID, instruments)
+		if err != nil {
+			return fmt.Errorf("failed to get underlying price for ATM filtering: %w", err)
+		}
+		if len(quotes) > 0 {
+			underlyingPrice, _ = strconv.ParseFloat(quotes[0].Last, 64)
+		}
+	}
+
+	// Apply filters
+	calls := chainResp.Calls
+	puts := chainResp.Puts
+
+	// First apply strike/OI/volume filters
+	if filter.minStrike > 0 || filter.maxStrike > 0 || filter.minOI > 0 || filter.minVolume > 0 {
+		if !filter.putsOnly {
+			calls = filterOptions(calls, filter)
+		}
+		if !filter.callsOnly {
+			puts = filterOptions(puts, filter)
+		}
+	}
+
+	// Then apply ATM strikes filter (if specified)
+	if filter.strikes > 0 && underlyingPrice > 0 {
+		// Sort by strike to ensure proper ordering
+		sort.Slice(calls, func(i, j int) bool {
+			return parseStrikeFloat(calls[i].Instrument.Symbol) < parseStrikeFloat(calls[j].Instrument.Symbol)
+		})
+		sort.Slice(puts, func(i, j int) bool {
+			return parseStrikeFloat(puts[i].Instrument.Symbol) < parseStrikeFloat(puts[j].Instrument.Symbol)
+		})
+
+		if !filter.putsOnly {
+			calls = filterStrikesAroundATM(calls, filter.strikes, underlyingPrice)
+		}
+		if !filter.callsOnly {
+			puts = filterStrikesAroundATM(puts, filter.strikes, underlyingPrice)
+		}
+	}
+
+	// Apply calls-only / puts-only filter
+	if filter.callsOnly {
+		puts = nil
+	}
+	if filter.putsOnly {
+		calls = nil
+	}
+
+	if len(calls) == 0 && len(puts) == 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No options available for %s expiring %s (after filtering)\n", chainResp.BaseSymbol, expiration)
 		return nil
 	}
 
 	// Format output
 	if opts.jsonMode {
+		// Return filtered results in JSON
+		filteredResp := api.OptionChainResponse{
+			BaseSymbol: chainResp.BaseSymbol,
+			Calls:      calls,
+			Puts:       puts,
+		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(chainResp)
+		return enc.Encode(filteredResp)
 	}
 
 	// Table output
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Option Chain for %s - Expiration: %s\n\n", chainResp.BaseSymbol, expiration)
 
-	if len(chainResp.Calls) > 0 {
+	if len(calls) > 0 {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "CALLS\n")
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "Strike", "Bid", "Ask", "Volume", "OI")
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "------", "------", "------", "------", "------")
-		for _, call := range chainResp.Calls {
+		for _, call := range calls {
 			strike := parseStrikeFromSymbol(call.Instrument.Symbol)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10d  %10d\n",
 				strike, call.Bid, call.Ask, call.Volume, call.OpenInterest)
@@ -231,11 +397,11 @@ func runOptionsChain(cmd *cobra.Command, opts optionsOptions, symbol, expiration
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n")
 	}
 
-	if len(chainResp.Puts) > 0 {
+	if len(puts) > 0 {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "PUTS\n")
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "Strike", "Bid", "Ask", "Volume", "OI")
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10s  %10s\n", "------", "------", "------", "------", "------")
-		for _, put := range chainResp.Puts {
+		for _, put := range puts {
 			strike := parseStrikeFromSymbol(put.Instrument.Symbol)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-8s  %8s  %8s  %10d  %10d\n",
 				strike, put.Bid, put.Ask, put.Volume, put.OpenInterest)
@@ -701,14 +867,31 @@ Examples:
 
 	var chainAccountID string
 	var chainExpiration string
+	var chainMinStrike string
+	var chainMaxStrike string
+	var chainMinOI int
+	var chainMinVolume int
+	var chainCallsOnly bool
+	var chainPutsOnly bool
+	var chainStrikes int
+
 	chainCmd := &cobra.Command{
 		Use:   "chain SYMBOL",
 		Short: "Display option chain",
 		Long: `Display the option chain for an underlying symbol and expiration date.
 
+Filtering options:
+  --strikes N          Show N strikes centered around ATM (e.g., --strikes 10 shows 5 above, 5 below)
+  --min-strike/--max-strike  Filter by strike price range
+  --calls-only/--puts-only   Show only one side of the chain
+  --min-oi N           Minimum open interest
+  --min-volume N       Minimum daily volume
+
 Examples:
-  pub options chain AAPL --expiration 2025-01-17        # Show chain for date
-  pub options chain AAPL --expiration 2025-01-17 --json # Output in JSON format`,
+  pub options chain AAPL --expiration 2025-01-17                    # Full chain
+  pub options chain AAPL -e 2025-01-17 --strikes 10                 # 10 strikes around ATM
+  pub options chain AAPL -e 2025-01-17 --calls-only --min-oi 100    # Liquid calls only
+  pub options chain AAPL -e 2025-01-17 --min-strike 170 --max-strike 190  # Strike range`,
 		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
@@ -742,12 +925,46 @@ Examples:
 			if chainExpiration == "" {
 				return fmt.Errorf("expiration date is required (use --expiration flag)")
 			}
-			return runOptionsChain(cmd, opts, args[0], chainExpiration)
+			if chainCallsOnly && chainPutsOnly {
+				return fmt.Errorf("cannot use both --calls-only and --puts-only")
+			}
+
+			// Build filter
+			filter := chainFilter{
+				minOI:     chainMinOI,
+				minVolume: chainMinVolume,
+				callsOnly: chainCallsOnly,
+				putsOnly:  chainPutsOnly,
+				strikes:   chainStrikes,
+			}
+			if chainMinStrike != "" {
+				if v, err := strconv.ParseFloat(chainMinStrike, 64); err == nil {
+					filter.minStrike = v
+				} else {
+					return fmt.Errorf("invalid --min-strike value: %s", chainMinStrike)
+				}
+			}
+			if chainMaxStrike != "" {
+				if v, err := strconv.ParseFloat(chainMaxStrike, 64); err == nil {
+					filter.maxStrike = v
+				} else {
+					return fmt.Errorf("invalid --max-strike value: %s", chainMaxStrike)
+				}
+			}
+
+			return runOptionsChain(cmd, opts, args[0], chainExpiration, filter)
 		},
 	}
 
 	chainCmd.Flags().StringVarP(&chainAccountID, "account", "a", "", "Account ID (uses default if not specified)")
 	chainCmd.Flags().StringVarP(&chainExpiration, "expiration", "e", "", "Expiration date (YYYY-MM-DD)")
+	chainCmd.Flags().IntVar(&chainStrikes, "strikes", 0, "Limit to N strikes around ATM (e.g., 10 shows 5 above, 5 below)")
+	chainCmd.Flags().StringVar(&chainMinStrike, "min-strike", "", "Minimum strike price")
+	chainCmd.Flags().StringVar(&chainMaxStrike, "max-strike", "", "Maximum strike price")
+	chainCmd.Flags().IntVar(&chainMinOI, "min-oi", 0, "Minimum open interest")
+	chainCmd.Flags().IntVar(&chainMinVolume, "min-volume", 0, "Minimum daily volume")
+	chainCmd.Flags().BoolVar(&chainCallsOnly, "calls-only", false, "Show only calls")
+	chainCmd.Flags().BoolVar(&chainPutsOnly, "puts-only", false, "Show only puts")
 	chainCmd.SilenceUsage = true
 
 	var greeksAccountID string

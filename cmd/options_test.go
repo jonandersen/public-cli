@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jonandersen/public-cli/internal/api"
 )
 
 func TestOptionsExpirationsCmd_Success(t *testing.T) {
@@ -773,4 +775,159 @@ func newTestCmd() *cobra.Command {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	return cmd
+}
+
+// Tests for filtering logic
+
+func TestParseStrikeFloat(t *testing.T) {
+	tests := []struct {
+		symbol   string
+		expected float64
+	}{
+		{"AAPL250117C00175000", 175.0},
+		{"AAPL250117C00185500", 185.5},
+		{"SPY260131P00550000", 550.0},
+		{"TSLA260220C00250500", 250.5},
+		{"SHORT", 0},    // Invalid symbol
+		{"", 0},         // Empty
+		{"AAPL250117C00000500", 0.5}, // Very low strike
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.symbol, func(t *testing.T) {
+			result := parseStrikeFloat(tc.symbol)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestFilterOptions_MinMaxStrike(t *testing.T) {
+	options := []api.OptionQuote{
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00170000"}, Volume: 100, OpenInterest: 500},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00175000"}, Volume: 200, OpenInterest: 1000},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00180000"}, Volume: 150, OpenInterest: 750},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00185000"}, Volume: 100, OpenInterest: 500},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00190000"}, Volume: 50, OpenInterest: 250},
+	}
+
+	// Test min-strike filter
+	filter := chainFilter{minStrike: 175}
+	result := filterOptions(options, filter)
+	assert.Len(t, result, 4)
+	assert.Equal(t, "AAPL250117C00175000", result[0].Instrument.Symbol)
+
+	// Test max-strike filter
+	filter = chainFilter{maxStrike: 180}
+	result = filterOptions(options, filter)
+	assert.Len(t, result, 3)
+	assert.Equal(t, "AAPL250117C00180000", result[2].Instrument.Symbol)
+
+	// Test min and max strike together
+	filter = chainFilter{minStrike: 175, maxStrike: 185}
+	result = filterOptions(options, filter)
+	assert.Len(t, result, 3)
+}
+
+func TestFilterOptions_MinOI(t *testing.T) {
+	options := []api.OptionQuote{
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00170000"}, OpenInterest: 50},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00175000"}, OpenInterest: 100},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00180000"}, OpenInterest: 500},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00185000"}, OpenInterest: 1000},
+	}
+
+	filter := chainFilter{minOI: 100}
+	result := filterOptions(options, filter)
+	assert.Len(t, result, 3)
+
+	filter = chainFilter{minOI: 500}
+	result = filterOptions(options, filter)
+	assert.Len(t, result, 2)
+}
+
+func TestFilterOptions_MinVolume(t *testing.T) {
+	options := []api.OptionQuote{
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00170000"}, Volume: 10},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00175000"}, Volume: 50},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00180000"}, Volume: 100},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00185000"}, Volume: 500},
+	}
+
+	filter := chainFilter{minVolume: 50}
+	result := filterOptions(options, filter)
+	assert.Len(t, result, 3)
+
+	filter = chainFilter{minVolume: 100}
+	result = filterOptions(options, filter)
+	assert.Len(t, result, 2)
+}
+
+func TestFilterOptions_Combined(t *testing.T) {
+	options := []api.OptionQuote{
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00170000"}, Volume: 10, OpenInterest: 50},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00175000"}, Volume: 100, OpenInterest: 500},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00180000"}, Volume: 200, OpenInterest: 1000},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00185000"}, Volume: 50, OpenInterest: 200},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00190000"}, Volume: 150, OpenInterest: 300},
+	}
+
+	// Combine all filters
+	filter := chainFilter{
+		minStrike: 175,
+		maxStrike: 185,
+		minOI:     200,
+		minVolume: 50,
+	}
+	result := filterOptions(options, filter)
+	// 175 (vol=100, OI=500), 180 (vol=200, OI=1000), 185 (vol=50, OI=200) all pass
+	assert.Len(t, result, 3)
+}
+
+func TestFilterStrikesAroundATM(t *testing.T) {
+	options := []api.OptionQuote{
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00165000"}}, // idx 0
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00170000"}}, // idx 1
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00175000"}}, // idx 2
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00180000"}}, // idx 3 (ATM)
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00185000"}}, // idx 4
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00190000"}}, // idx 5
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00195000"}}, // idx 6
+	}
+
+	// Underlying at 180, get 4 strikes (2 below, 2 above ATM at idx 3)
+	// With n=4, half=2: indices 1,2,3,4 -> 170,175,180,185
+	result := filterStrikesAroundATM(options, 4, 180.0)
+	assert.Len(t, result, 4)
+	assert.Equal(t, "AAPL250117C00170000", result[0].Instrument.Symbol)
+	assert.Equal(t, "AAPL250117C00185000", result[3].Instrument.Symbol)
+
+	// Underlying at 177 (closest to 175, idx 2), get 6 strikes
+	// With n=6, half=3: indices -1 to 5 -> adjusted to 0 to 6 -> 165,170,175,180,185,190
+	result = filterStrikesAroundATM(options, 6, 177.0)
+	assert.Len(t, result, 6)
+
+	// Edge case: underlying at edge (165, idx 0)
+	// With n=4, half=2: indices -2 to 2 -> adjusted to 0 to 4 -> 165,170,175,180
+	result = filterStrikesAroundATM(options, 4, 165.0)
+	assert.Len(t, result, 4)
+	assert.Equal(t, "AAPL250117C00165000", result[0].Instrument.Symbol)
+}
+
+func TestFilterStrikesAroundATM_SmallList(t *testing.T) {
+	options := []api.OptionQuote{
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00175000"}},
+		{Instrument: api.OptionInstrument{Symbol: "AAPL250117C00180000"}},
+	}
+
+	// Request more strikes than available
+	result := filterStrikesAroundATM(options, 10, 177.5)
+	assert.Len(t, result, 2) // Returns all available
+}
+
+func TestFilterStrikesAroundATM_Empty(t *testing.T) {
+	result := filterStrikesAroundATM(nil, 10, 180.0)
+	assert.Empty(t, result)
+
+	result = filterStrikesAroundATM([]api.OptionQuote{}, 10, 180.0)
+	assert.Empty(t, result)
 }
