@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -507,9 +508,11 @@ func TestOptionsModelSetHeight(t *testing.T) {
 }
 
 func TestOptionsModelHelpers(t *testing.T) {
-	// Test calculateDTE
-	dte := calculateDTE("2026-01-17")
-	assert.True(t, dte >= 0)
+	// Test calculateDTE - use a date 30 days in the future
+	// DTE rounds down based on hours, so it may be 28-30
+	futureDate := time.Now().AddDate(0, 0, 30).Format("2006-01-02")
+	dte := calculateDTE(futureDate)
+	assert.True(t, dte >= 28 && dte <= 30, "DTE should be approximately 30 days")
 
 	// Test formatOptPrice
 	assert.Equal(t, "1.50", formatOptPrice("1.5"))

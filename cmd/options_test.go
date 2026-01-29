@@ -788,8 +788,8 @@ func TestParseStrikeFloat(t *testing.T) {
 		{"AAPL250117C00185500", 185.5},
 		{"SPY260131P00550000", 550.0},
 		{"TSLA260220C00250500", 250.5},
-		{"SHORT", 0},    // Invalid symbol
-		{"", 0},         // Empty
+		{"SHORT", 0},                 // Invalid symbol
+		{"", 0},                      // Empty
 		{"AAPL250117C00000500", 0.5}, // Very low strike
 	}
 
