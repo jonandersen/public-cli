@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -930,4 +931,420 @@ func TestFilterStrikesAroundATM_Empty(t *testing.T) {
 
 	result = filterStrikesAroundATM([]api.OptionQuote{}, 10, 180.0)
 	assert.Empty(t, result)
+}
+
+// Tests for single-leg options orders
+
+func TestRunSingleLegOrder_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+		if r.URL.Path == "/userapigateway/trading/test-account/preflight/single-leg" {
+			// Preflight request
+			var req api.OptionsPreflightRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+
+			assert.Equal(t, "SBUX260220C00100000", req.Instrument.Symbol)
+			assert.Equal(t, "OPTION", req.Instrument.Type)
+			assert.Equal(t, "BUY", req.OrderSide)
+			assert.Equal(t, "LIMIT", req.OrderType)
+			assert.Equal(t, "8", req.Quantity)
+			assert.Equal(t, "1.50", req.LimitPrice)
+			assert.Equal(t, "OPEN", req.OpenCloseIndicator)
+
+			resp := api.OptionsPreflightResponse{
+				Instrument:             api.OrderInstrument{Symbol: "SBUX260220C00100000", Type: "OPTION"},
+				EstimatedCommission:    "0.00",
+				EstimatedCost:          "1200.00",
+				OrderValue:             "1200.00",
+				BuyingPowerRequirement: "1200.00",
+				EstimatedQuantity:      "8",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.URL.Path == "/userapigateway/trading/test-account/order" {
+			// Order request
+			var req api.OptionsOrderRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+
+			// Verify order request fields
+			assert.NotEmpty(t, req.OrderID)
+			assert.Equal(t, "SBUX260220C00100000", req.Instrument.Symbol)
+			assert.Equal(t, "OPTION", req.Instrument.Type)
+			assert.Equal(t, "BUY", req.OrderSide)
+			assert.Equal(t, "LIMIT", req.OrderType)
+			assert.Equal(t, "8", req.Quantity)
+			assert.Equal(t, "1.50", req.LimitPrice)
+			assert.Equal(t, "OPEN", req.OpenCloseIndicator)
+			assert.Equal(t, "DAY", req.Expiration.TimeInForce)
+
+			resp := api.OrderResponse{OrderID: req.OrderID}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		t.Errorf("unexpected path: %s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+		jsonMode:  false,
+	}
+
+	params := singleLegParams{
+		quantity:   "8",
+		limitPrice: "1.50",
+		expiration: "DAY",
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "SBUX260220C00100000", "BUY", params, true, true)
+	require.NoError(t, err)
+
+	output := cmd.OutOrStdout().(*bytes.Buffer).String()
+	assert.Contains(t, output, "Order placed successfully")
+	assert.Contains(t, output, "SBUX260220C00100000")
+	assert.Contains(t, output, "BUY")
+	assert.Contains(t, output, "OPEN")
+}
+
+func TestRunSingleLegOrder_SellToClose(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/userapigateway/trading/test-account/preflight/single-leg" {
+			resp := api.OptionsPreflightResponse{
+				EstimatedCost:     "250.00",
+				EstimatedProceeds: "250.00",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.URL.Path == "/userapigateway/trading/test-account/order" {
+			var req api.OptionsOrderRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+
+			assert.Equal(t, "SELL", req.OrderSide)
+			assert.Equal(t, "CLOSE", req.OpenCloseIndicator)
+
+			resp := api.OrderResponse{OrderID: req.OrderID}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "2.50",
+		expiration: "GTC",
+		openClose:  "CLOSE",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "SELL", params, true, true)
+	require.NoError(t, err)
+}
+
+func TestRunSingleLegOrder_RequiresConfirmation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := api.OptionsPreflightResponse{EstimatedCost: "250.00"}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "2.50",
+		expiration: "DAY",
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "BUY", params, false, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires confirmation")
+}
+
+func TestRunSingleLegOrder_RequiresQuantity(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "", // Missing
+		limitPrice: "2.50",
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "BUY", params, true, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "quantity is required")
+}
+
+func TestRunSingleLegOrder_RequiresLimitPrice(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "", // Missing
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "BUY", params, true, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "limit price is required")
+}
+
+func TestRunSingleLegOrder_RequiresOpenClose(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "2.50",
+		openClose:  "", // Missing
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "BUY", params, true, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "open/close indicator is required")
+}
+
+func TestRunSingleLegOrder_InvalidExpiration(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "2.50",
+		expiration: "INVALID",
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "BUY", params, true, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid expiration")
+}
+
+func TestRunSingleLegOrder_TradingDisabled(t *testing.T) {
+	opts := optionsOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "2.50",
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "BUY", params, true, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trading is disabled")
+}
+
+func TestRunSingleLegOrder_JSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/userapigateway/trading/test-account/preflight/single-leg" {
+			resp := api.OptionsPreflightResponse{EstimatedCost: "250.00"}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.URL.Path == "/userapigateway/trading/test-account/order" {
+			var req api.OptionsOrderRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			resp := api.OrderResponse{OrderID: req.OrderID}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+		jsonMode:  true,
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "2.50",
+		expiration: "DAY",
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "AAPL250117C00175000", "BUY", params, true, true)
+	require.NoError(t, err)
+
+	output := cmd.OutOrStdout().(*bytes.Buffer).String()
+	var result map[string]any
+	err = json.Unmarshal([]byte(output), &result)
+	require.NoError(t, err)
+
+	assert.Equal(t, "placed", result["status"])
+	assert.Equal(t, "AAPL250117C00175000", result["symbol"])
+	assert.Equal(t, "BUY", result["side"])
+	assert.Equal(t, "OPEN", result["openClose"])
+}
+
+func TestRunSingleLegOrder_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/userapigateway/trading/test-account/preflight/single-leg" {
+			resp := api.OptionsPreflightResponse{EstimatedCost: "250.00"}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Order fails
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":140,"message":"Provided symbol 'XYZ' is not valid"}`))
+	}))
+	defer server.Close()
+
+	opts := optionsOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		accountID: "test-account",
+	}
+
+	params := singleLegParams{
+		quantity:   "1",
+		limitPrice: "2.50",
+		expiration: "DAY",
+		openClose:  "OPEN",
+	}
+
+	cmd := newTestCmd()
+	err := runSingleLegOrder(cmd, opts, "XYZ", "BUY", params, true, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "400")
+	assert.Contains(t, err.Error(), "not valid")
+}
+
+func TestSumOptionsFees(t *testing.T) {
+	tests := []struct {
+		name     string
+		fees     api.OptionsRegulatoryFees
+		expected string
+	}{
+		{
+			name:     "All zeros",
+			fees:     api.OptionsRegulatoryFees{},
+			expected: "0.00",
+		},
+		{
+			name: "All fees",
+			fees: api.OptionsRegulatoryFees{
+				SECFee:      "0.01",
+				TAFFee:      "0.02",
+				ORFFee:      "0.03",
+				ExchangeFee: "0.04",
+				OCCFee:      "0.05",
+				CATFee:      "0.06",
+			},
+			expected: "0.21",
+		},
+		{
+			name: "Partial fees",
+			fees: api.OptionsRegulatoryFees{
+				SECFee: "0.10",
+				OCCFee: "0.15",
+			},
+			expected: "0.25",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := sumOptionsFees(tc.fees)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestExtractOptionsErrorMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    error
+		expected string
+	}{
+		{
+			name:     "Nil error",
+			input:    nil,
+			expected: "",
+		},
+		{
+			name:     "Simple error",
+			input:    assert.AnError,
+			expected: "assert.AnError general error for testing",
+		},
+		{
+			name:     "JSON error with message",
+			input:    fmt.Errorf(`API error: 400 - {"code":140,"message":"Symbol is not valid"}`),
+			expected: "Symbol is not valid",
+		},
+		{
+			name:     "JSON error with header only",
+			input:    fmt.Errorf(`API error: 400 - {"code":140,"header":"Bad Request"}`),
+			expected: "Bad Request",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := extractOptionsErrorMessage(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }

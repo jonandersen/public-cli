@@ -207,6 +207,55 @@ type PreflightRequest struct {
 	StopPrice  string          `json:"stopPrice,omitempty"`
 }
 
+// =============================================================================
+// Single-Leg Options Order Types
+// =============================================================================
+
+// OptionsOrderRequest represents a single-leg options order request.
+type OptionsOrderRequest struct {
+	OrderID            string          `json:"orderId"`
+	Instrument         OrderInstrument `json:"instrument"`
+	OrderSide          string          `json:"orderSide"`
+	OrderType          string          `json:"orderType"`
+	Expiration         OrderExpiration `json:"expiration"`
+	Quantity           string          `json:"quantity"`
+	LimitPrice         string          `json:"limitPrice,omitempty"`
+	OpenCloseIndicator string          `json:"openCloseIndicator"`
+}
+
+// OptionsPreflightRequest represents a single-leg options preflight request.
+type OptionsPreflightRequest struct {
+	Instrument         OrderInstrument `json:"instrument"`
+	OrderSide          string          `json:"orderSide"`
+	OrderType          string          `json:"orderType"`
+	Expiration         OrderExpiration `json:"expiration"`
+	Quantity           string          `json:"quantity"`
+	LimitPrice         string          `json:"limitPrice,omitempty"`
+	OpenCloseIndicator string          `json:"openCloseIndicator"`
+}
+
+// OptionsPreflightResponse represents the API response for single-leg options preflight.
+type OptionsPreflightResponse struct {
+	Instrument             OrderInstrument       `json:"instrument"`
+	EstimatedCommission    string                `json:"estimatedCommission"`
+	RegulatoryFees         OptionsRegulatoryFees `json:"regulatoryFees"`
+	EstimatedCost          string                `json:"estimatedCost"`
+	BuyingPowerRequirement string                `json:"buyingPowerRequirement"`
+	OrderValue             string                `json:"orderValue"`
+	EstimatedQuantity      string                `json:"estimatedQuantity"`
+	EstimatedProceeds      string                `json:"estimatedProceeds,omitempty"`
+}
+
+// OptionsRegulatoryFees represents the breakdown of regulatory fees for options.
+type OptionsRegulatoryFees struct {
+	SECFee      string `json:"secFee"`
+	TAFFee      string `json:"tafFee"`
+	ORFFee      string `json:"orfFee"`
+	ExchangeFee string `json:"exchangeFee"`
+	OCCFee      string `json:"occFee"`
+	CATFee      string `json:"catFee"`
+}
+
 // RegulatoryFees represents the breakdown of regulatory fees.
 type RegulatoryFees struct {
 	SECFee string `json:"secFee"`

@@ -644,6 +644,250 @@ func sumMultilegFees(fees MultilegRegulatoryFees) string {
 	return fmt.Sprintf("%.2f", total)
 }
 
+// singleLegParams holds parameters for single-leg options orders.
+type singleLegParams struct {
+	quantity   string
+	limitPrice string
+	expiration string
+	openClose  string // "OPEN" or "CLOSE"
+}
+
+func runSingleLegPreflight(opts optionsOptions, symbol, side string, params singleLegParams) (*api.OptionsPreflightResponse, error) {
+	// Validate expiration
+	expiration := strings.ToUpper(params.expiration)
+	if expiration == "" {
+		expiration = "DAY"
+	}
+
+	preflightReq := api.OptionsPreflightRequest{
+		Instrument: api.OrderInstrument{
+			Symbol: strings.ToUpper(symbol),
+			Type:   "OPTION",
+		},
+		OrderSide: side,
+		OrderType: "LIMIT",
+		Expiration: api.OrderExpiration{
+			TimeInForce: expiration,
+		},
+		Quantity:           params.quantity,
+		LimitPrice:         params.limitPrice,
+		OpenCloseIndicator: strings.ToUpper(params.openClose),
+	}
+
+	body, err := json.Marshal(preflightReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode preflight request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/preflight/single-leg", opts.accountID)
+	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to call preflight: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("preflight API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var preflightResp api.OptionsPreflightResponse
+	if err := json.NewDecoder(resp.Body).Decode(&preflightResp); err != nil {
+		return nil, fmt.Errorf("failed to decode preflight response: %w", err)
+	}
+
+	return &preflightResp, nil
+}
+
+func runSingleLegOrder(cmd *cobra.Command, opts optionsOptions, symbol, side string, params singleLegParams, skipConfirm, tradingEnabled bool) error {
+	// Check trading is enabled
+	if !tradingEnabled {
+		return config.ErrTradingDisabled
+	}
+
+	// Validate inputs
+	if opts.accountID == "" {
+		return fmt.Errorf("account ID is required (use --account flag or configure default account)")
+	}
+
+	if params.quantity == "" {
+		return fmt.Errorf("quantity is required (use --quantity flag)")
+	}
+
+	if params.limitPrice == "" {
+		return fmt.Errorf("limit price is required for options orders (use --limit flag)")
+	}
+
+	openClose := strings.ToUpper(params.openClose)
+	if openClose != "OPEN" && openClose != "CLOSE" {
+		return fmt.Errorf("open/close indicator is required (use --open or --close flag)")
+	}
+
+	symbol = strings.ToUpper(symbol)
+	orderID := uuid.New().String()
+
+	// Validate expiration
+	expiration := strings.ToUpper(params.expiration)
+	if expiration != "DAY" && expiration != "GTC" {
+		return fmt.Errorf("invalid expiration: %s (use DAY or GTC)", params.expiration)
+	}
+
+	// Call preflight to get estimated costs
+	preflight, preflightErr := runSingleLegPreflight(opts, symbol, side, params)
+
+	// Show order preview (not in JSON mode)
+	if !opts.jsonMode {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nOptions Order Preview:\n")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Action:     %s to %s\n", side, openClose)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Symbol:     %s\n", symbol)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Quantity:   %s contract(s)\n", params.quantity)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Limit:      $%s\n", params.limitPrice)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Expires:    %s\n", expiration)
+
+		// Show preflight cost estimates if available
+		if preflightErr == nil && preflight != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Estimated Cost:\n")
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Order Value:  $%s\n", preflight.OrderValue)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Commission:   $%s\n", preflight.EstimatedCommission)
+			totalFees := sumOptionsFees(preflight.RegulatoryFees)
+			if totalFees != "0.00" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Reg Fees:     $%s\n", totalFees)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Total:        $%s\n", preflight.EstimatedCost)
+			if preflight.EstimatedProceeds != "" && preflight.EstimatedProceeds != "0" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Est Proceeds: $%s\n", preflight.EstimatedProceeds)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Buying Power Required: $%s\n", preflight.BuyingPowerRequirement)
+		} else if preflightErr != nil {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Cost Estimate: unavailable (%s)\n", extractOptionsErrorMessage(preflightErr))
+		}
+
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  Order ID: %s\n\n", orderID)
+	}
+
+	// Require confirmation unless --yes flag is set
+	if !skipConfirm {
+		return fmt.Errorf("order requires confirmation (use --yes to confirm)")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Build order request
+	orderReq := api.OptionsOrderRequest{
+		OrderID: orderID,
+		Instrument: api.OrderInstrument{
+			Symbol: symbol,
+			Type:   "OPTION",
+		},
+		OrderSide: side,
+		OrderType: "LIMIT",
+		Expiration: api.OrderExpiration{
+			TimeInForce: expiration,
+		},
+		Quantity:           params.quantity,
+		LimitPrice:         params.limitPrice,
+		OpenCloseIndicator: openClose,
+	}
+
+	body, err := json.Marshal(orderReq)
+	if err != nil {
+		return fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	client := api.NewClient(opts.baseURL, opts.authToken)
+	path := fmt.Sprintf("/userapigateway/trading/%s/order", opts.accountID)
+	resp, err := client.Post(ctx, path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to place order: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
+	}
+
+	var orderResp api.OrderResponse
+	if err := json.NewDecoder(resp.Body).Decode(&orderResp); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Output result
+	if opts.jsonMode {
+		result := map[string]any{
+			"orderId":    orderResp.OrderID,
+			"status":     "placed",
+			"symbol":     symbol,
+			"side":       side,
+			"quantity":   params.quantity,
+			"limitPrice": params.limitPrice,
+			"openClose":  openClose,
+		}
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Order placed successfully!\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Order ID: %s\n", orderResp.OrderID)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s to %s %s contract(s) of %s at $%s\n", side, openClose, params.quantity, symbol, params.limitPrice)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nNote: Order placement is asynchronous. Use 'pub order status %s' to check execution status.\n", orderResp.OrderID)
+
+	return nil
+}
+
+// sumOptionsFees calculates the total regulatory fees for single-leg options orders.
+func sumOptionsFees(fees api.OptionsRegulatoryFees) string {
+	var total float64
+	for _, feeStr := range []string{fees.SECFee, fees.TAFFee, fees.ORFFee, fees.ExchangeFee, fees.OCCFee, fees.CATFee} {
+		if feeStr == "" {
+			continue
+		}
+		var v float64
+		if _, err := fmt.Sscanf(feeStr, "%f", &v); err == nil {
+			total += v
+		}
+	}
+	return fmt.Sprintf("%.2f", total)
+}
+
+// extractOptionsErrorMessage extracts a human-readable message from an API error.
+func extractOptionsErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	errStr := err.Error()
+
+	// Try to extract JSON error message from API response
+	if idx := strings.Index(errStr, "{"); idx != -1 {
+		jsonPart := errStr[idx:]
+		var apiErr struct {
+			Code    any    `json:"code"`
+			Header  string `json:"header"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(jsonPart), &apiErr) == nil {
+			if apiErr.Message != "" {
+				return apiErr.Message
+			}
+			if apiErr.Header != "" {
+				return apiErr.Header
+			}
+		}
+	}
+
+	// Fallback: return a shortened version of the error
+	if len(errStr) > 80 {
+		return errStr[:80] + "..."
+	}
+	return errStr
+}
+
 func runMultilegOrder(cmd *cobra.Command, opts optionsOptions, legs []string, limitPrice, quantity, expiration string, skipConfirm bool) error {
 	// Parse legs
 	var parsedLegs []MultilegLeg
@@ -1185,9 +1429,147 @@ Examples:
 	multilegCmd.AddCommand(multilegPreflightCmd)
 	multilegCmd.AddCommand(multilegOrderCmd)
 
+	// Single-leg options buy command
+	var buyAccountID string
+	var buyParams singleLegParams
+	var buySkipConfirm bool
+	var buyOpen bool
+	var buyClose bool
+
+	buyCmd := &cobra.Command{
+		Use:   "buy SYMBOL",
+		Short: "Buy options contracts",
+		Long: `Place a buy order for options contracts.
+
+The symbol should be in OCC format (e.g., AAPL250117C00175000).
+You must specify whether you are opening or closing a position with --open or --close.
+
+Examples:
+  pub options buy AAPL250117C00175000 --quantity 1 --limit 2.50 --open --yes    # Buy to open
+  pub options buy AAPL250117P00170000 --quantity 1 --limit 1.25 --close --yes   # Buy to close (cover short)
+  pub options buy SBUX260220C00100000 -q 8 -l 1.50 --open --yes                 # Buy 8 contracts`,
+		Args: cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
+			if err != nil {
+				return err
+			}
+
+			if buyAccountID == "" {
+				buyAccountID = cfg.AccountUUID
+			}
+
+			opts.baseURL = cfg.APIBaseURL
+			opts.authToken = token
+			opts.accountID = buyAccountID
+			opts.jsonMode = GetJSONMode()
+
+			// Set openClose from flags
+			if buyOpen && buyClose {
+				return fmt.Errorf("cannot use both --open and --close")
+			}
+			if buyOpen {
+				buyParams.openClose = "OPEN"
+			} else if buyClose {
+				buyParams.openClose = "CLOSE"
+			}
+
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := config.Load(config.ConfigPath())
+			return runSingleLegOrder(cmd, opts, args[0], "BUY", buyParams, buySkipConfirm, cfg.TradingEnabled)
+		},
+	}
+
+	buyCmd.Flags().StringVarP(&buyAccountID, "account", "a", "", "Account ID (uses default if not specified)")
+	buyCmd.Flags().StringVarP(&buyParams.quantity, "quantity", "q", "", "Number of contracts (required)")
+	buyCmd.Flags().StringVarP(&buyParams.limitPrice, "limit", "l", "", "Limit price (required)")
+	buyCmd.Flags().StringVarP(&buyParams.expiration, "expiration", "e", "DAY", "Order expiration: DAY (default) or GTC")
+	buyCmd.Flags().BoolVar(&buyOpen, "open", false, "Buy to open a new position")
+	buyCmd.Flags().BoolVar(&buyClose, "close", false, "Buy to close an existing short position")
+	buyCmd.Flags().BoolVarP(&buySkipConfirm, "yes", "y", false, "Skip confirmation prompt")
+	buyCmd.SilenceUsage = true
+
+	// Single-leg options sell command
+	var sellAccountID string
+	var sellParams singleLegParams
+	var sellSkipConfirm bool
+	var sellOpen bool
+	var sellClose bool
+
+	sellCmd := &cobra.Command{
+		Use:   "sell SYMBOL",
+		Short: "Sell options contracts",
+		Long: `Place a sell order for options contracts.
+
+The symbol should be in OCC format (e.g., AAPL250117C00175000).
+You must specify whether you are opening or closing a position with --open or --close.
+
+Examples:
+  pub options sell AAPL250117C00175000 --quantity 1 --limit 2.50 --close --yes  # Sell to close (exit long)
+  pub options sell AAPL250117P00170000 --quantity 1 --limit 1.25 --open --yes   # Sell to open (write option)
+  pub options sell SBUX260220C00100000 -q 8 -l 1.50 --close --yes               # Sell 8 contracts`,
+		Args: cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.ConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			store := keyring.NewEnvStore(keyring.NewSystemStore())
+			token, err := api.GetAuthToken(store, cfg.APIBaseURL, false)
+			if err != nil {
+				return err
+			}
+
+			if sellAccountID == "" {
+				sellAccountID = cfg.AccountUUID
+			}
+
+			opts.baseURL = cfg.APIBaseURL
+			opts.authToken = token
+			opts.accountID = sellAccountID
+			opts.jsonMode = GetJSONMode()
+
+			// Set openClose from flags
+			if sellOpen && sellClose {
+				return fmt.Errorf("cannot use both --open and --close")
+			}
+			if sellOpen {
+				sellParams.openClose = "OPEN"
+			} else if sellClose {
+				sellParams.openClose = "CLOSE"
+			}
+
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := config.Load(config.ConfigPath())
+			return runSingleLegOrder(cmd, opts, args[0], "SELL", sellParams, sellSkipConfirm, cfg.TradingEnabled)
+		},
+	}
+
+	sellCmd.Flags().StringVarP(&sellAccountID, "account", "a", "", "Account ID (uses default if not specified)")
+	sellCmd.Flags().StringVarP(&sellParams.quantity, "quantity", "q", "", "Number of contracts (required)")
+	sellCmd.Flags().StringVarP(&sellParams.limitPrice, "limit", "l", "", "Limit price (required)")
+	sellCmd.Flags().StringVarP(&sellParams.expiration, "expiration", "e", "DAY", "Order expiration: DAY (default) or GTC")
+	sellCmd.Flags().BoolVar(&sellOpen, "open", false, "Sell to open a new short position")
+	sellCmd.Flags().BoolVar(&sellClose, "close", false, "Sell to close an existing long position")
+	sellCmd.Flags().BoolVarP(&sellSkipConfirm, "yes", "y", false, "Skip confirmation prompt")
+	sellCmd.SilenceUsage = true
+
 	optionsCmd.AddCommand(expirationsCmd)
 	optionsCmd.AddCommand(chainCmd)
 	optionsCmd.AddCommand(greeksCmd)
 	optionsCmd.AddCommand(multilegCmd)
+	optionsCmd.AddCommand(buyCmd)
+	optionsCmd.AddCommand(sellCmd)
 	rootCmd.AddCommand(optionsCmd)
 }
