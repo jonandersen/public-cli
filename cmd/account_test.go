@@ -604,3 +604,192 @@ func TestAccountPortfolioCmd_NetworkError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to fetch portfolio")
 }
+
+func TestAccountPortfolioCmd_OnlyBuyingPower(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId":   "abc123",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"cashOnlyBuyingPower": "10000.00",
+				"buyingPower":         "10000.00",
+				"optionsBuyingPower":  "5000.00",
+			},
+			"equity": []map[string]any{
+				{"type": "CASH", "value": "5000.00", "percentageOfPortfolio": "50.00"},
+			},
+			"positions": []map[string]any{
+				{
+					"instrument":   map[string]any{"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+					"quantity":     "10",
+					"currentValue": "1750.00",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123", "--only", "buying-power"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify JSON output contains only buying power
+	var result map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	assert.Contains(t, result, "buyingPower")
+	assert.Equal(t, "10000.00", result["buyingPower"])
+	assert.Contains(t, result, "optionsBuyingPower")
+	assert.Equal(t, "5000.00", result["optionsBuyingPower"])
+	// Should NOT contain positions or equity
+	assert.NotContains(t, result, "positions")
+	assert.NotContains(t, result, "equity")
+}
+
+func TestAccountPortfolioCmd_OnlyPositions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId":   "abc123",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"buyingPower":        "10000.00",
+				"optionsBuyingPower": "5000.00",
+			},
+			"equity": []map[string]any{
+				{"type": "CASH", "value": "5000.00", "percentageOfPortfolio": "50.00"},
+			},
+			"positions": []map[string]any{
+				{
+					"instrument":   map[string]any{"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+					"quantity":     "10",
+					"currentValue": "1750.00",
+				},
+				{
+					"instrument":   map[string]any{"symbol": "GOOG", "name": "Alphabet Inc.", "type": "EQUITY"},
+					"quantity":     "5",
+					"currentValue": "875.00",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123", "--only", "positions"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify JSON output is positions array
+	var result []map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	assert.Len(t, result, 2)
+	assert.Equal(t, "AAPL", result[0]["instrument"].(map[string]any)["symbol"])
+	assert.Equal(t, "GOOG", result[1]["instrument"].(map[string]any)["symbol"])
+}
+
+func TestAccountPortfolioCmd_OnlyEquity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"accountId":   "abc123",
+			"accountType": "BROKERAGE",
+			"buyingPower": map[string]any{
+				"buyingPower":        "10000.00",
+				"optionsBuyingPower": "5000.00",
+			},
+			"equity": []map[string]any{
+				{"type": "CASH", "value": "5000.00", "percentageOfPortfolio": "50.00"},
+				{"type": "STOCK", "value": "5000.00", "percentageOfPortfolio": "50.00"},
+			},
+			"positions": []map[string]any{
+				{
+					"instrument":   map[string]any{"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+					"quantity":     "10",
+					"currentValue": "1750.00",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   server.URL,
+		authToken: "test-token",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123", "--only", "equity"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify JSON output is equity array
+	var result []map[string]any
+	err = json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	assert.Len(t, result, 2)
+	assert.Equal(t, "CASH", result[0]["type"])
+	assert.Equal(t, "STOCK", result[1]["type"])
+}
+
+func TestAccountPortfolioCmd_OnlyInvalidValue(t *testing.T) {
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		jsonMode:  true,
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123", "--only", "invalid"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --only value")
+}
+
+func TestAccountPortfolioCmd_OnlyRequiresJSON(t *testing.T) {
+	cmd := newAccountCmd(accountOptions{
+		baseURL:   "http://localhost",
+		authToken: "test-token",
+		jsonMode:  false, // Not in JSON mode
+	})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"portfolio", "--account", "abc123", "--only", "positions"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--only requires --json")
+}

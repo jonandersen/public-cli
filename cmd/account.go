@@ -25,6 +25,13 @@ type accountOptions struct {
 	tokenRefresher   api.TokenRefresher
 }
 
+// portfolioFilter defines valid values for the --only flag.
+var validPortfolioFilters = map[string]bool{
+	"buying-power": true,
+	"positions":    true,
+	"equity":       true,
+}
+
 // newAccountCmd creates the account command with the given options.
 func newAccountCmd(opts accountOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -94,6 +101,7 @@ func runAccountList(cmd *cobra.Command, opts accountOptions) error {
 
 func newPortfolioCmd(opts accountOptions) *cobra.Command {
 	var flagAccountID string
+	var flagOnly string
 
 	cmd := &cobra.Command{
 		Use:   "portfolio",
@@ -104,7 +112,10 @@ Uses the default account from config if --account is not specified.
 
 Examples:
   pub account portfolio                          # Use default account
-  pub account portfolio --account YOUR_ACCOUNT_ID`,
+  pub account portfolio --account YOUR_ACCOUNT_ID
+  pub account portfolio --json --only buying-power  # Just buying power
+  pub account portfolio --json --only positions     # Just positions array
+  pub account portfolio --json --only equity        # Just equity array`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			accountID := flagAccountID
 			if accountID == "" {
@@ -113,17 +124,27 @@ Examples:
 			if accountID == "" {
 				return fmt.Errorf("account ID is required (use --account flag or set default with 'pub configure')")
 			}
-			return runPortfolio(cmd, opts, accountID)
+			// Validate --only flag
+			if flagOnly != "" {
+				if !opts.jsonMode {
+					return fmt.Errorf("--only requires --json flag")
+				}
+				if !validPortfolioFilters[flagOnly] {
+					return fmt.Errorf("invalid --only value %q: must be one of buying-power, positions, equity", flagOnly)
+				}
+			}
+			return runPortfolio(cmd, opts, accountID, flagOnly)
 		},
 	}
 
 	cmd.Flags().StringVarP(&flagAccountID, "account", "a", "", "Account ID (uses default if configured)")
+	cmd.Flags().StringVar(&flagOnly, "only", "", "Filter JSON output to one section: buying-power, positions, equity")
 	cmd.SilenceUsage = true
 
 	return cmd
 }
 
-func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) error {
+func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string, only string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -146,6 +167,22 @@ func runPortfolio(cmd *cobra.Command, opts accountOptions, accountID string) err
 	}
 
 	formatter := output.New(cmd.OutOrStdout(), opts.jsonMode)
+
+	// Handle --only flag for JSON output
+	if opts.jsonMode && only != "" {
+		switch only {
+		case "buying-power":
+			return formatter.Print(map[string]any{
+				"buyingPower":         portfolio.BuyingPower.BuyingPower,
+				"optionsBuyingPower":  portfolio.BuyingPower.OptionsBuyingPower,
+				"cashOnlyBuyingPower": portfolio.BuyingPower.CashOnlyBuyingPower,
+			})
+		case "positions":
+			return formatter.Print(portfolio.Positions)
+		case "equity":
+			return formatter.Print(portfolio.Equity)
+		}
+	}
 
 	// Print buying power summary
 	if !opts.jsonMode {
@@ -252,6 +289,7 @@ Examples:
 
 	// Add portfolio subcommand
 	var portfolioAccountID string
+	var portfolioOnly string
 	portfolioCmd := &cobra.Command{
 		Use:   "portfolio",
 		Short: "View portfolio positions and balances",
@@ -261,7 +299,10 @@ Uses the default account from config if --account is not specified.
 
 Examples:
   pub account portfolio                          # Use default account
-  pub account portfolio --account YOUR_ACCOUNT_ID`,
+  pub account portfolio --account YOUR_ACCOUNT_ID
+  pub account portfolio --json --only buying-power  # Just buying power
+  pub account portfolio --json --only positions     # Just positions array
+  pub account portfolio --json --only equity        # Just equity array`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			accountID := portfolioAccountID
 			if accountID == "" {
@@ -270,10 +311,20 @@ Examples:
 			if accountID == "" {
 				return fmt.Errorf("account ID is required (use --account flag or set default with 'pub configure')")
 			}
-			return runPortfolio(cmd, opts, accountID)
+			// Validate --only flag
+			if portfolioOnly != "" {
+				if !opts.jsonMode {
+					return fmt.Errorf("--only requires --json flag")
+				}
+				if !validPortfolioFilters[portfolioOnly] {
+					return fmt.Errorf("invalid --only value %q: must be one of buying-power, positions, equity", portfolioOnly)
+				}
+			}
+			return runPortfolio(cmd, opts, accountID, portfolioOnly)
 		},
 	}
 	portfolioCmd.Flags().StringVarP(&portfolioAccountID, "account", "a", "", "Account ID (uses default if configured)")
+	portfolioCmd.Flags().StringVar(&portfolioOnly, "only", "", "Filter JSON output to one section: buying-power, positions, equity")
 	portfolioCmd.SilenceUsage = true
 
 	accountCmd.AddCommand(portfolioCmd)
