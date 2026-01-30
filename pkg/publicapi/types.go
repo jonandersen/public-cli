@@ -85,3 +85,39 @@ type CostBasis struct {
 	GainPercentage string `json:"gainPercentage"`
 	LastUpdate     string `json:"lastUpdate"`
 }
+
+// =============================================================================
+// Quote Types
+// =============================================================================
+
+// QuoteRequest represents a request for quotes.
+type QuoteRequest struct {
+	Instruments []QuoteInstrument `json:"instruments"`
+}
+
+// QuoteInstrument represents an instrument to quote.
+type QuoteInstrument struct {
+	Symbol string `json:"symbol"`
+	Type   string `json:"type"`
+}
+
+// QuotesResponse represents the API response for quotes.
+type QuotesResponse struct {
+	Quotes []Quote `json:"quotes"`
+}
+
+// Quote represents a single quote.
+type Quote struct {
+	Instrument    QuoteInstrument `json:"instrument"`
+	Outcome       string          `json:"outcome"`
+	Last          string          `json:"last"`
+	LastTimestamp string          `json:"lastTimestamp"`
+	Bid           string          `json:"bid"`
+	BidSize       int             `json:"bidSize"`
+	BidTimestamp  string          `json:"bidTimestamp"`
+	Ask           string          `json:"ask"`
+	AskSize       int             `json:"askSize"`
+	AskTimestamp  string          `json:"askTimestamp"`
+	Volume        int64           `json:"volume"`
+	OpenInterest  *int64          `json:"openInterest"`
+}
