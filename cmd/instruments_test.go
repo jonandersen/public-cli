@@ -19,7 +19,7 @@ func TestInstrumentsCmd_Success(t *testing.T) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
-		resp := InstrumentsResponse{
+		resp := api.InstrumentsResponse{
 			Instruments: []api.InstrumentResponse{
 				{
 					Instrument:          api.InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
@@ -65,7 +65,7 @@ func TestInstrumentsCmd_WithTypeFilter(t *testing.T) {
 		assert.Equal(t, "/userapigateway/trading/instruments", r.URL.Path)
 		assert.Equal(t, "CRYPTO", r.URL.Query().Get("typeFilter"))
 
-		resp := InstrumentsResponse{
+		resp := api.InstrumentsResponse{
 			Instruments: []api.InstrumentResponse{
 				{
 					Instrument:          api.InstrumentIdentifier{Symbol: "BTC", Type: "CRYPTO"},
@@ -110,7 +110,7 @@ func TestInstrumentsCmd_WithTradingFilter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "LIQUIDATION_ONLY", r.URL.Query().Get("tradingFilter"))
 
-		resp := InstrumentsResponse{
+		resp := api.InstrumentsResponse{
 			Instruments: []api.InstrumentResponse{
 				{
 					Instrument:          api.InstrumentIdentifier{Symbol: "DELISTED", Type: "EQUITY"},
@@ -145,7 +145,7 @@ func TestInstrumentsCmd_WithTradingFilter(t *testing.T) {
 
 func TestInstrumentsCmd_JSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := InstrumentsResponse{
+		resp := api.InstrumentsResponse{
 			Instruments: []api.InstrumentResponse{
 				{
 					Instrument:          api.InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},
@@ -174,7 +174,7 @@ func TestInstrumentsCmd_JSON(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	var result InstrumentsResponse
+	var result api.InstrumentsResponse
 	err = json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	require.Len(t, result.Instruments, 1)
@@ -184,7 +184,7 @@ func TestInstrumentsCmd_JSON(t *testing.T) {
 
 func TestInstrumentsCmd_EmptyResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := InstrumentsResponse{
+		resp := api.InstrumentsResponse{
 			Instruments: []api.InstrumentResponse{},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -235,7 +235,7 @@ func TestInstrumentsCmd_MultipleFilters(t *testing.T) {
 		assert.Equal(t, "EQUITY", r.URL.Query().Get("typeFilter"))
 		assert.Equal(t, "BUY_AND_SELL", r.URL.Query().Get("tradingFilter"))
 
-		resp := InstrumentsResponse{
+		resp := api.InstrumentsResponse{
 			Instruments: []api.InstrumentResponse{
 				{
 					Instrument:          api.InstrumentIdentifier{Symbol: "AAPL", Type: "EQUITY"},

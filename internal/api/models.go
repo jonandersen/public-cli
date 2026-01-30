@@ -84,32 +84,16 @@ type (
 )
 
 // =============================================================================
-// History Types
+// Instrument Types (aliased from pkg/publicapi)
 // =============================================================================
 
-// Transaction represents a single transaction in account history.
-type Transaction struct {
-	ID              string `json:"id"`
-	Timestamp       string `json:"timestamp"`
-	Type            string `json:"type"`
-	SubType         string `json:"subType"`
-	AccountNumber   string `json:"accountNumber"`
-	Symbol          string `json:"symbol"`
-	SecurityType    string `json:"securityType"`
-	Side            string `json:"side"`
-	Description     string `json:"description"`
-	NetAmount       string `json:"netAmount"`
-	PrincipalAmount string `json:"principalAmount"`
-	Quantity        string `json:"quantity"`
-	Direction       string `json:"direction"`
-	Fees            string `json:"fees"`
-}
+type InstrumentsResponse = publicapi.InstrumentsResponse
 
-// HistoryResponse represents the API response for account history.
-type HistoryResponse struct {
-	Transactions []Transaction `json:"transactions"`
-	NextToken    string        `json:"nextToken"`
-	Start        string        `json:"start"`
-	End          string        `json:"end"`
-	PageSize     int           `json:"pageSize"`
-}
+// =============================================================================
+// History Types (aliased from pkg/publicapi)
+// =============================================================================
+
+type (
+	Transaction     = publicapi.Transaction
+	HistoryResponse = publicapi.HistoryResponse
+)

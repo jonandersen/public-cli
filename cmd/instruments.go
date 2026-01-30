@@ -24,11 +24,6 @@ type instrumentsOptions struct {
 	jsonMode  bool
 }
 
-// InstrumentsResponse represents the API response for listing instruments.
-type InstrumentsResponse struct {
-	Instruments []api.InstrumentResponse `json:"instruments"`
-}
-
 // newInstrumentsCmd creates the instruments command with the given options.
 func newInstrumentsCmd(opts instrumentsOptions) *cobra.Command {
 	var typeFilter string
@@ -91,7 +86,7 @@ func runInstruments(cmd *cobra.Command, opts instrumentsOptions, typeFilter, tra
 		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	var instResp InstrumentsResponse
+	var instResp api.InstrumentsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&instResp); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
