@@ -38,89 +38,22 @@ type (
 )
 
 // =============================================================================
-// Order Types
+// Order Types (aliased from pkg/publicapi)
 // =============================================================================
 
-// Order represents an open order from the API.
-type Order struct {
-	OrderID        string     `json:"orderId"`
-	Instrument     Instrument `json:"instrument"`
-	Side           string     `json:"side"`
-	Type           string     `json:"type"`
-	Status         string     `json:"status"`
-	Quantity       string     `json:"quantity"`
-	FilledQuantity string     `json:"filledQuantity"`
-	LimitPrice     string     `json:"limitPrice,omitempty"`
-	StopPrice      string     `json:"stopPrice,omitempty"`
-	CreatedAt      string     `json:"createdAt"`
-}
-
-// OrdersResponse represents the portfolio API response containing orders.
-type OrdersResponse struct {
-	Orders []Order `json:"orders"`
-}
-
-// OrderRequest represents an order placement request.
-type OrderRequest struct {
-	OrderID    string          `json:"orderId"`
-	Instrument OrderInstrument `json:"instrument"`
-	OrderSide  string          `json:"orderSide"`
-	OrderType  string          `json:"orderType"`
-	Expiration OrderExpiration `json:"expiration"`
-	Quantity   string          `json:"quantity,omitempty"`
-	Amount     string          `json:"amount,omitempty"`
-	LimitPrice string          `json:"limitPrice,omitempty"`
-	StopPrice  string          `json:"stopPrice,omitempty"`
-}
-
-// OrderInstrument represents the instrument being traded in an order.
-type OrderInstrument struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// OrderExpiration represents order time-in-force.
-type OrderExpiration struct {
-	TimeInForce string `json:"timeInForce"`
-}
-
-// OrderResponse represents the API response for order placement.
-type OrderResponse struct {
-	OrderID string `json:"orderId"`
-}
-
-// OrderStatusResponse represents the API response for order status.
-type OrderStatusResponse struct {
-	OrderID        string          `json:"orderId"`
-	Instrument     OrderInstrument `json:"instrument"`
-	CreatedAt      string          `json:"createdAt"`
-	Type           string          `json:"type"`
-	Side           string          `json:"side"`
-	Status         string          `json:"status"`
-	Quantity       string          `json:"quantity"`
-	LimitPrice     string          `json:"limitPrice,omitempty"`
-	StopPrice      string          `json:"stopPrice,omitempty"`
-	FilledQuantity string          `json:"filledQuantity"`
-	AveragePrice   string          `json:"averagePrice,omitempty"`
-	ClosedAt       string          `json:"closedAt,omitempty"`
-}
-
-// OrderListResponse represents the portfolio API response containing orders.
-type OrderListResponse struct {
-	AccountID string  `json:"accountId"`
-	Orders    []Order `json:"orders"`
-}
-
-// PreflightRequest represents a preflight request to estimate order costs.
-type PreflightRequest struct {
-	Instrument OrderInstrument `json:"instrument"`
-	OrderSide  string          `json:"orderSide"`
-	OrderType  string          `json:"orderType"`
-	Expiration OrderExpiration `json:"expiration"`
-	Quantity   string          `json:"quantity,omitempty"`
-	LimitPrice string          `json:"limitPrice,omitempty"`
-	StopPrice  string          `json:"stopPrice,omitempty"`
-}
+type (
+	Order               = publicapi.Order
+	OrdersResponse      = publicapi.OrdersResponse
+	OrderRequest        = publicapi.OrderRequest
+	OrderInstrument     = publicapi.OrderInstrument
+	OrderExpiration     = publicapi.OrderExpiration
+	OrderResponse       = publicapi.OrderResponse
+	OrderStatusResponse = publicapi.OrderStatusResponse
+	OrderListResponse   = publicapi.OrderListResponse
+	PreflightRequest    = publicapi.PreflightRequest
+	RegulatoryFees      = publicapi.RegulatoryFees
+	PreflightResponse   = publicapi.PreflightResponse
+)
 
 // =============================================================================
 // Single-Leg Options Order Types
@@ -169,24 +102,6 @@ type OptionsRegulatoryFees struct {
 	ExchangeFee string `json:"exchangeFee"`
 	OCCFee      string `json:"occFee"`
 	CATFee      string `json:"catFee"`
-}
-
-// RegulatoryFees represents the breakdown of regulatory fees.
-type RegulatoryFees struct {
-	SECFee string `json:"secFee"`
-	TAFFee string `json:"tafFee"`
-	ORFFee string `json:"orfFee"`
-}
-
-// PreflightResponse represents the API response for preflight estimation.
-type PreflightResponse struct {
-	Instrument             OrderInstrument `json:"instrument"`
-	EstimatedCommission    string          `json:"estimatedCommission"`
-	RegulatoryFees         RegulatoryFees  `json:"regulatoryFees"`
-	EstimatedCost          string          `json:"estimatedCost"`
-	BuyingPowerRequirement string          `json:"buyingPowerRequirement"`
-	OrderValue             string          `json:"orderValue"`
-	EstimatedQuantity      string          `json:"estimatedQuantity"`
 }
 
 // =============================================================================
