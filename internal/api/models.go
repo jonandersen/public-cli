@@ -1,90 +1,30 @@
 package api
 
-// =============================================================================
-// Account Types
-// =============================================================================
-
-// Account represents a Public.com account.
-type Account struct {
-	AccountID            string `json:"accountId"`
-	AccountType          string `json:"accountType"`
-	OptionsLevel         string `json:"optionsLevel"`
-	BrokerageAccountType string `json:"brokerageAccountType"`
-	TradePermissions     string `json:"tradePermissions"`
-}
-
-// AccountsResponse represents the API response for listing accounts.
-type AccountsResponse struct {
-	Accounts []Account `json:"accounts"`
-}
+import "github.com/jonandersen/public-cli/pkg/publicapi"
 
 // =============================================================================
-// Portfolio Types
+// Account Types (aliased from pkg/publicapi)
 // =============================================================================
 
-// Portfolio represents a portfolio response from the API.
-type Portfolio struct {
-	AccountID   string      `json:"accountId"`
-	AccountType string      `json:"accountType"`
-	BuyingPower BuyingPower `json:"buyingPower"`
-	Equity      []Equity    `json:"equity"`
-	Positions   []Position  `json:"positions"`
-}
+type (
+	Account          = publicapi.Account
+	AccountsResponse = publicapi.AccountsResponse
+)
 
-// BuyingPower represents buying power information.
-type BuyingPower struct {
-	CashOnlyBuyingPower string `json:"cashOnlyBuyingPower"`
-	BuyingPower         string `json:"buyingPower"`
-	OptionsBuyingPower  string `json:"optionsBuyingPower"`
-}
+// =============================================================================
+// Portfolio Types (aliased from pkg/publicapi)
+// =============================================================================
 
-// Equity represents an equity breakdown item.
-type Equity struct {
-	Type                  string `json:"type"`
-	Value                 string `json:"value"`
-	PercentageOfPortfolio string `json:"percentageOfPortfolio"`
-}
-
-// Position represents a portfolio position.
-type Position struct {
-	Instrument         Instrument `json:"instrument"`
-	Quantity           string     `json:"quantity"`
-	CurrentValue       string     `json:"currentValue"`
-	PercentOfPortfolio string     `json:"percentOfPortfolio"`
-	LastPrice          Price      `json:"lastPrice"`
-	InstrumentGain     Gain       `json:"instrumentGain"`
-	PositionDailyGain  Gain       `json:"positionDailyGain"`
-	CostBasis          CostBasis  `json:"costBasis"`
-}
-
-// Instrument represents a trading instrument.
-type Instrument struct {
-	Symbol string `json:"symbol"`
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-}
-
-// Price represents a price with timestamp.
-type Price struct {
-	LastPrice string `json:"lastPrice"`
-	Timestamp string `json:"timestamp"`
-}
-
-// Gain represents a gain/loss value with percentage.
-type Gain struct {
-	GainValue      string `json:"gainValue"`
-	GainPercentage string `json:"gainPercentage"`
-	Timestamp      string `json:"timestamp"`
-}
-
-// CostBasis represents cost basis information.
-type CostBasis struct {
-	TotalCost      string `json:"totalCost"`
-	UnitCost       string `json:"unitCost"`
-	GainValue      string `json:"gainValue"`
-	GainPercentage string `json:"gainPercentage"`
-	LastUpdate     string `json:"lastUpdate"`
-}
+type (
+	Portfolio   = publicapi.Portfolio
+	BuyingPower = publicapi.BuyingPower
+	Equity      = publicapi.Equity
+	Position    = publicapi.Position
+	Instrument  = publicapi.Instrument
+	Price       = publicapi.Price
+	Gain        = publicapi.Gain
+	CostBasis   = publicapi.CostBasis
+)
 
 // =============================================================================
 // Quote Types
