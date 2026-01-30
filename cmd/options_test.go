@@ -520,7 +520,7 @@ func TestRunMultilegOrder_Success(t *testing.T) {
 
 		if r.URL.Path == "/userapigateway/trading/test-account/preflight/multi-leg" {
 			// Preflight request
-			resp := MultilegPreflightResponse{
+			resp := api.MultilegPreflightResponse{
 				BaseSymbol:             "AAPL",
 				StrategyName:           "VERTICAL CALL SPREAD",
 				EstimatedCommission:    "0.00",
@@ -528,15 +528,15 @@ func TestRunMultilegOrder_Success(t *testing.T) {
 				OrderValue:             "250.00",
 				BuyingPowerRequirement: "250.00",
 				EstimatedQuantity:      "1",
-				Legs: []MultilegPreflightLeg{
+				Legs: []api.MultilegPreflightLeg{
 					{
-						Instrument:         MultilegInstrument{Symbol: "AAPL250117C00175000", Type: "OPTION"},
+						Instrument:         api.MultilegInstrument{Symbol: "AAPL250117C00175000", Type: "OPTION"},
 						Side:               "BUY",
 						OpenCloseIndicator: "OPEN",
 						RatioQuantity:      1,
 					},
 					{
-						Instrument:         MultilegInstrument{Symbol: "AAPL250117C00180000", Type: "OPTION"},
+						Instrument:         api.MultilegInstrument{Symbol: "AAPL250117C00180000", Type: "OPTION"},
 						Side:               "SELL",
 						OpenCloseIndicator: "OPEN",
 						RatioQuantity:      1,
@@ -550,7 +550,7 @@ func TestRunMultilegOrder_Success(t *testing.T) {
 
 		if r.URL.Path == "/userapigateway/trading/test-account/order/multi-leg" {
 			// Order request
-			var req MultilegOrderRequest
+			var req api.MultilegOrderRequest
 			err := json.NewDecoder(r.Body).Decode(&req)
 			require.NoError(t, err)
 
@@ -562,7 +562,7 @@ func TestRunMultilegOrder_Success(t *testing.T) {
 			assert.Equal(t, "DAY", req.Expiration.TimeInForce)
 			assert.Len(t, req.Legs, 2)
 
-			resp := MultilegOrderResponse{
+			resp := api.MultilegOrderResponse{
 				OrderID: req.OrderID,
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -599,7 +599,7 @@ func TestRunMultilegOrder_Success(t *testing.T) {
 func TestRunMultilegOrder_RequiresConfirmation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return preflight response
-		resp := MultilegPreflightResponse{
+		resp := api.MultilegPreflightResponse{
 			BaseSymbol:             "AAPL",
 			StrategyName:           "VERTICAL CALL SPREAD",
 			EstimatedCost:          "250.00",
@@ -689,7 +689,7 @@ func TestRunMultilegOrder_InvalidExpiration(t *testing.T) {
 func TestRunMultilegOrder_JSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/userapigateway/trading/test-account/preflight/multi-leg" {
-			resp := MultilegPreflightResponse{
+			resp := api.MultilegPreflightResponse{
 				BaseSymbol:   "AAPL",
 				StrategyName: "VERTICAL CALL SPREAD",
 			}
@@ -699,9 +699,9 @@ func TestRunMultilegOrder_JSON(t *testing.T) {
 		}
 
 		if r.URL.Path == "/userapigateway/trading/test-account/order/multi-leg" {
-			var req MultilegOrderRequest
+			var req api.MultilegOrderRequest
 			_ = json.NewDecoder(r.Body).Decode(&req)
-			resp := MultilegOrderResponse{OrderID: req.OrderID}
+			resp := api.MultilegOrderResponse{OrderID: req.OrderID}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
 			return
@@ -738,7 +738,7 @@ func TestRunMultilegOrder_JSON(t *testing.T) {
 func TestRunMultilegOrder_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/userapigateway/trading/test-account/preflight/multi-leg" {
-			resp := MultilegPreflightResponse{
+			resp := api.MultilegPreflightResponse{
 				BaseSymbol:   "AAPL",
 				StrategyName: "VERTICAL CALL SPREAD",
 			}

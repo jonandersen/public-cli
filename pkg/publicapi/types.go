@@ -224,3 +224,228 @@ type PreflightResponse struct {
 	OrderValue             string          `json:"orderValue"`
 	EstimatedQuantity      string          `json:"estimatedQuantity"`
 }
+
+// =============================================================================
+// Options Types
+// =============================================================================
+
+// OptionInstrument represents an instrument for options requests.
+type OptionInstrument struct {
+	Symbol string `json:"symbol"`
+	Type   string `json:"type"`
+}
+
+// OptionExpirationsRequest represents a request for option expirations.
+type OptionExpirationsRequest struct {
+	Instrument OptionInstrument `json:"instrument"`
+}
+
+// OptionExpirationsResponse represents the API response for option expirations.
+type OptionExpirationsResponse struct {
+	BaseSymbol  string   `json:"baseSymbol"`
+	Expirations []string `json:"expirations"`
+}
+
+// OptionChainRequest represents a request for an option chain.
+type OptionChainRequest struct {
+	Instrument     OptionInstrument `json:"instrument"`
+	ExpirationDate string           `json:"expirationDate"`
+}
+
+// OptionChainResponse represents the API response for an option chain.
+type OptionChainResponse struct {
+	BaseSymbol string        `json:"baseSymbol"`
+	Calls      []OptionQuote `json:"calls"`
+	Puts       []OptionQuote `json:"puts"`
+}
+
+// OptionQuote represents a single option quote in the chain.
+type OptionQuote struct {
+	Instrument   OptionInstrument `json:"instrument"`
+	Outcome      string           `json:"outcome"`
+	Last         string           `json:"last"`
+	Bid          string           `json:"bid"`
+	BidSize      int              `json:"bidSize"`
+	Ask          string           `json:"ask"`
+	AskSize      int              `json:"askSize"`
+	Volume       int              `json:"volume"`
+	OpenInterest int              `json:"openInterest"`
+}
+
+// GreeksResponse represents the API response for option greeks.
+type GreeksResponse struct {
+	Greeks []OptionGreeks `json:"greeks"`
+}
+
+// OptionGreeks represents greeks for a single option.
+type OptionGreeks struct {
+	Symbol string     `json:"symbol"`
+	Greeks GreeksData `json:"greeks"`
+}
+
+// GreeksData contains the actual greek values.
+type GreeksData struct {
+	Delta             string `json:"delta"`
+	Gamma             string `json:"gamma"`
+	Theta             string `json:"theta"`
+	Vega              string `json:"vega"`
+	Rho               string `json:"rho"`
+	ImpliedVolatility string `json:"impliedVolatility"`
+}
+
+// =============================================================================
+// Single-Leg Options Order Types
+// =============================================================================
+
+// OptionsOrderRequest represents a single-leg options order request.
+type OptionsOrderRequest struct {
+	OrderID            string          `json:"orderId"`
+	Instrument         OrderInstrument `json:"instrument"`
+	OrderSide          string          `json:"orderSide"`
+	OrderType          string          `json:"orderType"`
+	Expiration         OrderExpiration `json:"expiration"`
+	Quantity           string          `json:"quantity"`
+	LimitPrice         string          `json:"limitPrice,omitempty"`
+	OpenCloseIndicator string          `json:"openCloseIndicator"`
+}
+
+// OptionsPreflightRequest represents a single-leg options preflight request.
+type OptionsPreflightRequest struct {
+	Instrument         OrderInstrument `json:"instrument"`
+	OrderSide          string          `json:"orderSide"`
+	OrderType          string          `json:"orderType"`
+	Expiration         OrderExpiration `json:"expiration"`
+	Quantity           string          `json:"quantity"`
+	LimitPrice         string          `json:"limitPrice,omitempty"`
+	OpenCloseIndicator string          `json:"openCloseIndicator"`
+}
+
+// OptionsPreflightResponse represents the API response for single-leg options preflight.
+type OptionsPreflightResponse struct {
+	Instrument             OrderInstrument       `json:"instrument"`
+	EstimatedCommission    string                `json:"estimatedCommission"`
+	RegulatoryFees         OptionsRegulatoryFees `json:"regulatoryFees"`
+	EstimatedCost          string                `json:"estimatedCost"`
+	BuyingPowerRequirement string                `json:"buyingPowerRequirement"`
+	OrderValue             string                `json:"orderValue"`
+	EstimatedQuantity      string                `json:"estimatedQuantity"`
+	EstimatedProceeds      string                `json:"estimatedProceeds,omitempty"`
+}
+
+// OptionsRegulatoryFees represents the breakdown of regulatory fees for options.
+type OptionsRegulatoryFees struct {
+	SECFee      string `json:"secFee"`
+	TAFFee      string `json:"tafFee"`
+	ORFFee      string `json:"orfFee"`
+	ExchangeFee string `json:"exchangeFee"`
+	OCCFee      string `json:"occFee"`
+	CATFee      string `json:"catFee"`
+}
+
+// =============================================================================
+// Multi-Leg Options Order Types
+// =============================================================================
+
+// MultilegPreflightRequest represents a multi-leg preflight request.
+type MultilegPreflightRequest struct {
+	OrderType  string             `json:"orderType"`
+	Expiration MultilegExpiration `json:"expiration"`
+	Quantity   string             `json:"quantity"`
+	LimitPrice string             `json:"limitPrice"`
+	Legs       []MultilegLeg      `json:"legs"`
+}
+
+// MultilegExpiration represents time-in-force for multi-leg orders.
+type MultilegExpiration struct {
+	TimeInForce string `json:"timeInForce"`
+}
+
+// MultilegLeg represents a single leg in a multi-leg order.
+type MultilegLeg struct {
+	Instrument         MultilegInstrument `json:"instrument"`
+	Side               string             `json:"side"`
+	OpenCloseIndicator string             `json:"openCloseIndicator"`
+	RatioQuantity      int                `json:"ratioQuantity"`
+}
+
+// MultilegInstrument represents an instrument in a multi-leg order.
+type MultilegInstrument struct {
+	Symbol string `json:"symbol"`
+	Type   string `json:"type"`
+}
+
+// MultilegPreflightResponse represents the API response for multi-leg preflight.
+type MultilegPreflightResponse struct {
+	BaseSymbol              string                 `json:"baseSymbol"`
+	StrategyName            string                 `json:"strategyName"`
+	Legs                    []MultilegPreflightLeg `json:"legs"`
+	EstimatedCommission     string                 `json:"estimatedCommission"`
+	RegulatoryFees          MultilegRegulatoryFees `json:"regulatoryFees"`
+	EstimatedIndexOptionFee string                 `json:"estimatedIndexOptionFee"`
+	OrderValue              string                 `json:"orderValue"`
+	EstimatedQuantity       string                 `json:"estimatedQuantity"`
+	EstimatedCost           string                 `json:"estimatedCost"`
+	BuyingPowerRequirement  string                 `json:"buyingPowerRequirement"`
+	EstimatedProceeds       string                 `json:"estimatedProceeds"`
+	PriceIncrement          MultilegPriceIncrement `json:"priceIncrement"`
+}
+
+// MultilegPreflightLeg represents a leg in the preflight response.
+type MultilegPreflightLeg struct {
+	Instrument         MultilegInstrument `json:"instrument"`
+	Side               string             `json:"side"`
+	OpenCloseIndicator string             `json:"openCloseIndicator"`
+	RatioQuantity      int                `json:"ratioQuantity"`
+}
+
+// MultilegRegulatoryFees represents regulatory fees for multi-leg orders.
+type MultilegRegulatoryFees struct {
+	SECFee      string `json:"secFee"`
+	TAFFee      string `json:"tafFee"`
+	ORFFee      string `json:"orfFee"`
+	ExchangeFee string `json:"exchangeFee"`
+	OCCFee      string `json:"occFee"`
+	CATFee      string `json:"catFee"`
+}
+
+// MultilegPriceIncrement represents price increment information.
+type MultilegPriceIncrement struct {
+	IncrementBelow3  string `json:"incrementBelow3"`
+	IncrementAbove3  string `json:"incrementAbove3"`
+	CurrentIncrement string `json:"currentIncrement"`
+}
+
+// MultilegOrderRequest represents a multi-leg order request.
+type MultilegOrderRequest struct {
+	OrderID    string             `json:"orderId"`
+	OrderType  string             `json:"orderType"`
+	Expiration MultilegExpiration `json:"expiration"`
+	Quantity   string             `json:"quantity"`
+	LimitPrice string             `json:"limitPrice"`
+	Legs       []MultilegLeg      `json:"legs"`
+}
+
+// MultilegOrderResponse represents the API response for a multi-leg order.
+type MultilegOrderResponse struct {
+	OrderID string `json:"orderId"`
+}
+
+// =============================================================================
+// Instrument Types
+// =============================================================================
+
+// InstrumentIdentifier represents an instrument identifier in API responses.
+type InstrumentIdentifier struct {
+	Symbol string `json:"symbol"`
+	Type   string `json:"type"`
+}
+
+// InstrumentResponse represents the API response for instrument details.
+type InstrumentResponse struct {
+	Instrument          InstrumentIdentifier `json:"instrument"`
+	Trading             string               `json:"trading"`
+	FractionalTrading   string               `json:"fractionalTrading"`
+	OptionTrading       string               `json:"optionTrading"`
+	OptionSpreadTrading string               `json:"optionSpreadTrading"`
+	InstrumentDetails   any                  `json:"instrumentDetails,omitempty"`
+}

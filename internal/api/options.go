@@ -7,87 +7,27 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/jonandersen/public-cli/pkg/publicapi"
 )
 
-// OptionInstrument represents an instrument for options requests.
-type OptionInstrument struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
+// =============================================================================
+// Options Types (aliased from pkg/publicapi)
+// =============================================================================
 
-// OptionExpirationsRequest represents a request for option expirations.
-type OptionExpirationsRequest struct {
-	Instrument OptionInstrument `json:"instrument"`
-}
-
-// OptionExpirationsResponse represents the API response for option expirations.
-type OptionExpirationsResponse struct {
-	BaseSymbol  string   `json:"baseSymbol"`
-	Expirations []string `json:"expirations"`
-}
-
-// OptionChainRequest represents a request for an option chain.
-type OptionChainRequest struct {
-	Instrument     OptionInstrument `json:"instrument"`
-	ExpirationDate string           `json:"expirationDate"`
-}
-
-// OptionChainResponse represents the API response for an option chain.
-type OptionChainResponse struct {
-	BaseSymbol string        `json:"baseSymbol"`
-	Calls      []OptionQuote `json:"calls"`
-	Puts       []OptionQuote `json:"puts"`
-}
-
-// OptionQuote represents a single option quote in the chain.
-type OptionQuote struct {
-	Instrument   OptionInstrument `json:"instrument"`
-	Outcome      string           `json:"outcome"`
-	Last         string           `json:"last"`
-	Bid          string           `json:"bid"`
-	BidSize      int              `json:"bidSize"`
-	Ask          string           `json:"ask"`
-	AskSize      int              `json:"askSize"`
-	Volume       int              `json:"volume"`
-	OpenInterest int              `json:"openInterest"`
-}
-
-// GreeksResponse represents the API response for option greeks.
-type GreeksResponse struct {
-	Greeks []OptionGreeks `json:"greeks"`
-}
-
-// OptionGreeks represents greeks for a single option.
-type OptionGreeks struct {
-	Symbol string     `json:"symbol"`
-	Greeks GreeksData `json:"greeks"`
-}
-
-// GreeksData contains the actual greek values.
-type GreeksData struct {
-	Delta             string `json:"delta"`
-	Gamma             string `json:"gamma"`
-	Theta             string `json:"theta"`
-	Vega              string `json:"vega"`
-	Rho               string `json:"rho"`
-	ImpliedVolatility string `json:"impliedVolatility"`
-}
-
-// InstrumentIdentifier represents an instrument identifier in API responses.
-type InstrumentIdentifier struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// InstrumentResponse represents the API response for instrument details.
-type InstrumentResponse struct {
-	Instrument          InstrumentIdentifier `json:"instrument"`
-	Trading             string               `json:"trading"`
-	FractionalTrading   string               `json:"fractionalTrading"`
-	OptionTrading       string               `json:"optionTrading"`
-	OptionSpreadTrading string               `json:"optionSpreadTrading"`
-	InstrumentDetails   any                  `json:"instrumentDetails,omitempty"`
-}
+type (
+	OptionInstrument          = publicapi.OptionInstrument
+	OptionExpirationsRequest  = publicapi.OptionExpirationsRequest
+	OptionExpirationsResponse = publicapi.OptionExpirationsResponse
+	OptionChainRequest        = publicapi.OptionChainRequest
+	OptionChainResponse       = publicapi.OptionChainResponse
+	OptionQuote               = publicapi.OptionQuote
+	GreeksResponse            = publicapi.GreeksResponse
+	OptionGreeks              = publicapi.OptionGreeks
+	GreeksData                = publicapi.GreeksData
+	InstrumentIdentifier      = publicapi.InstrumentIdentifier
+	InstrumentResponse        = publicapi.InstrumentResponse
+)
 
 // GetOptionExpirations retrieves available option expiration dates for a symbol.
 func (c *Client) GetOptionExpirations(ctx context.Context, accountID, symbol string) (*OptionExpirationsResponse, error) {

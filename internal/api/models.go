@@ -56,53 +56,32 @@ type (
 )
 
 // =============================================================================
-// Single-Leg Options Order Types
+// Single-Leg Options Order Types (aliased from pkg/publicapi)
 // =============================================================================
 
-// OptionsOrderRequest represents a single-leg options order request.
-type OptionsOrderRequest struct {
-	OrderID            string          `json:"orderId"`
-	Instrument         OrderInstrument `json:"instrument"`
-	OrderSide          string          `json:"orderSide"`
-	OrderType          string          `json:"orderType"`
-	Expiration         OrderExpiration `json:"expiration"`
-	Quantity           string          `json:"quantity"`
-	LimitPrice         string          `json:"limitPrice,omitempty"`
-	OpenCloseIndicator string          `json:"openCloseIndicator"`
-}
+type (
+	OptionsOrderRequest      = publicapi.OptionsOrderRequest
+	OptionsPreflightRequest  = publicapi.OptionsPreflightRequest
+	OptionsPreflightResponse = publicapi.OptionsPreflightResponse
+	OptionsRegulatoryFees    = publicapi.OptionsRegulatoryFees
+)
 
-// OptionsPreflightRequest represents a single-leg options preflight request.
-type OptionsPreflightRequest struct {
-	Instrument         OrderInstrument `json:"instrument"`
-	OrderSide          string          `json:"orderSide"`
-	OrderType          string          `json:"orderType"`
-	Expiration         OrderExpiration `json:"expiration"`
-	Quantity           string          `json:"quantity"`
-	LimitPrice         string          `json:"limitPrice,omitempty"`
-	OpenCloseIndicator string          `json:"openCloseIndicator"`
-}
+// =============================================================================
+// Multi-Leg Options Order Types (aliased from pkg/publicapi)
+// =============================================================================
 
-// OptionsPreflightResponse represents the API response for single-leg options preflight.
-type OptionsPreflightResponse struct {
-	Instrument             OrderInstrument       `json:"instrument"`
-	EstimatedCommission    string                `json:"estimatedCommission"`
-	RegulatoryFees         OptionsRegulatoryFees `json:"regulatoryFees"`
-	EstimatedCost          string                `json:"estimatedCost"`
-	BuyingPowerRequirement string                `json:"buyingPowerRequirement"`
-	OrderValue             string                `json:"orderValue"`
-	EstimatedQuantity      string                `json:"estimatedQuantity"`
-	EstimatedProceeds      string                `json:"estimatedProceeds,omitempty"`
-}
-
-// OptionsRegulatoryFees represents the breakdown of regulatory fees for options.
-type OptionsRegulatoryFees struct {
-	SECFee      string `json:"secFee"`
-	TAFFee      string `json:"tafFee"`
-	ORFFee      string `json:"orfFee"`
-	ExchangeFee string `json:"exchangeFee"`
-	OCCFee      string `json:"occFee"`
-	CATFee      string `json:"catFee"`
-}
+type (
+	MultilegPreflightRequest  = publicapi.MultilegPreflightRequest
+	MultilegExpiration        = publicapi.MultilegExpiration
+	MultilegLeg               = publicapi.MultilegLeg
+	MultilegInstrument        = publicapi.MultilegInstrument
+	MultilegPreflightResponse = publicapi.MultilegPreflightResponse
+	MultilegPreflightLeg      = publicapi.MultilegPreflightLeg
+	MultilegRegulatoryFees    = publicapi.MultilegRegulatoryFees
+	MultilegPriceIncrement    = publicapi.MultilegPriceIncrement
+	MultilegOrderRequest      = publicapi.MultilegOrderRequest
+	MultilegOrderResponse     = publicapi.MultilegOrderResponse
+)
 
 // =============================================================================
 // History Types

@@ -131,90 +131,6 @@ type optionsOptions struct {
 	jsonMode  bool
 }
 
-// MultilegPreflightRequest represents a multi-leg preflight request.
-type MultilegPreflightRequest struct {
-	OrderType  string             `json:"orderType"`
-	Expiration MultilegExpiration `json:"expiration"`
-	Quantity   string             `json:"quantity"`
-	LimitPrice string             `json:"limitPrice"`
-	Legs       []MultilegLeg      `json:"legs"`
-}
-
-// MultilegExpiration represents time-in-force for multi-leg orders.
-type MultilegExpiration struct {
-	TimeInForce string `json:"timeInForce"`
-}
-
-// MultilegLeg represents a single leg in a multi-leg order.
-type MultilegLeg struct {
-	Instrument         MultilegInstrument `json:"instrument"`
-	Side               string             `json:"side"`
-	OpenCloseIndicator string             `json:"openCloseIndicator"`
-	RatioQuantity      int                `json:"ratioQuantity"`
-}
-
-// MultilegInstrument represents an instrument in a multi-leg order.
-type MultilegInstrument struct {
-	Symbol string `json:"symbol"`
-	Type   string `json:"type"`
-}
-
-// MultilegPreflightResponse represents the API response for multi-leg preflight.
-type MultilegPreflightResponse struct {
-	BaseSymbol              string                 `json:"baseSymbol"`
-	StrategyName            string                 `json:"strategyName"`
-	Legs                    []MultilegPreflightLeg `json:"legs"`
-	EstimatedCommission     string                 `json:"estimatedCommission"`
-	RegulatoryFees          MultilegRegulatoryFees `json:"regulatoryFees"`
-	EstimatedIndexOptionFee string                 `json:"estimatedIndexOptionFee"`
-	OrderValue              string                 `json:"orderValue"`
-	EstimatedQuantity       string                 `json:"estimatedQuantity"`
-	EstimatedCost           string                 `json:"estimatedCost"`
-	BuyingPowerRequirement  string                 `json:"buyingPowerRequirement"`
-	EstimatedProceeds       string                 `json:"estimatedProceeds"`
-	PriceIncrement          MultilegPriceIncrement `json:"priceIncrement"`
-}
-
-// MultilegPreflightLeg represents a leg in the preflight response.
-type MultilegPreflightLeg struct {
-	Instrument         MultilegInstrument `json:"instrument"`
-	Side               string             `json:"side"`
-	OpenCloseIndicator string             `json:"openCloseIndicator"`
-	RatioQuantity      int                `json:"ratioQuantity"`
-}
-
-// MultilegRegulatoryFees represents regulatory fees for multi-leg orders.
-type MultilegRegulatoryFees struct {
-	SECFee      string `json:"secFee"`
-	TAFFee      string `json:"tafFee"`
-	ORFFee      string `json:"orfFee"`
-	ExchangeFee string `json:"exchangeFee"`
-	OCCFee      string `json:"occFee"`
-	CATFee      string `json:"catFee"`
-}
-
-// MultilegPriceIncrement represents price increment information.
-type MultilegPriceIncrement struct {
-	IncrementBelow3  string `json:"incrementBelow3"`
-	IncrementAbove3  string `json:"incrementAbove3"`
-	CurrentIncrement string `json:"currentIncrement"`
-}
-
-// MultilegOrderRequest represents a multi-leg order request.
-type MultilegOrderRequest struct {
-	OrderID    string             `json:"orderId"`
-	OrderType  string             `json:"orderType"`
-	Expiration MultilegExpiration `json:"expiration"`
-	Quantity   string             `json:"quantity"`
-	LimitPrice string             `json:"limitPrice"`
-	Legs       []MultilegLeg      `json:"legs"`
-}
-
-// MultilegOrderResponse represents the API response for a multi-leg order.
-type MultilegOrderResponse struct {
-	OrderID string `json:"orderId"`
-}
-
 // newOptionsExpirationsCmd creates the options expirations command with the given options.
 func newOptionsExpirationsCmd(opts optionsOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -475,28 +391,28 @@ func runOptionsGreeks(cmd *cobra.Command, opts optionsOptions, symbols []string)
 
 // parseLeg parses a leg string in format "SIDE SYMBOL OPEN|CLOSE [RATIO]"
 // Example: "BUY AAPL250117C00175000 OPEN" or "SELL AAPL250117C00180000 OPEN 2"
-func parseLeg(legStr string) (MultilegLeg, error) {
+func parseLeg(legStr string) (api.MultilegLeg, error) {
 	parts := strings.Fields(legStr)
 	if len(parts) < 3 {
-		return MultilegLeg{}, fmt.Errorf("invalid leg format: expected 'SIDE SYMBOL OPEN|CLOSE [RATIO]', got %q", legStr)
+		return api.MultilegLeg{}, fmt.Errorf("invalid leg format: expected 'SIDE SYMBOL OPEN|CLOSE [RATIO]', got %q", legStr)
 	}
 
 	side := strings.ToUpper(parts[0])
 	if side != "BUY" && side != "SELL" {
-		return MultilegLeg{}, fmt.Errorf("invalid side %q: must be BUY or SELL", parts[0])
+		return api.MultilegLeg{}, fmt.Errorf("invalid side %q: must be BUY or SELL", parts[0])
 	}
 
 	symbol := strings.ToUpper(parts[1])
 
 	openClose := strings.ToUpper(parts[2])
 	if openClose != "OPEN" && openClose != "CLOSE" {
-		return MultilegLeg{}, fmt.Errorf("invalid open/close %q: must be OPEN or CLOSE", parts[2])
+		return api.MultilegLeg{}, fmt.Errorf("invalid open/close %q: must be OPEN or CLOSE", parts[2])
 	}
 
 	ratio := 1
 	if len(parts) >= 4 {
 		if _, err := fmt.Sscanf(parts[3], "%d", &ratio); err != nil {
-			return MultilegLeg{}, fmt.Errorf("invalid ratio %q: must be an integer", parts[3])
+			return api.MultilegLeg{}, fmt.Errorf("invalid ratio %q: must be an integer", parts[3])
 		}
 	}
 
@@ -506,8 +422,8 @@ func parseLeg(legStr string) (MultilegLeg, error) {
 		instType = "EQUITY"
 	}
 
-	return MultilegLeg{
-		Instrument: MultilegInstrument{
+	return api.MultilegLeg{
+		Instrument: api.MultilegInstrument{
 			Symbol: symbol,
 			Type:   instType,
 		},
@@ -522,7 +438,7 @@ func runMultilegPreflight(cmd *cobra.Command, opts optionsOptions, legs []string
 	defer cancel()
 
 	// Parse legs
-	var parsedLegs []MultilegLeg
+	var parsedLegs []api.MultilegLeg
 	for _, legStr := range legs {
 		leg, err := parseLeg(legStr)
 		if err != nil {
@@ -545,9 +461,9 @@ func runMultilegPreflight(cmd *cobra.Command, opts optionsOptions, legs []string
 	}
 
 	// Build request
-	req := MultilegPreflightRequest{
+	req := api.MultilegPreflightRequest{
 		OrderType: "LIMIT",
-		Expiration: MultilegExpiration{
+		Expiration: api.MultilegExpiration{
 			TimeInForce: exp,
 		},
 		Quantity:   quantity,
@@ -573,7 +489,7 @@ func runMultilegPreflight(cmd *cobra.Command, opts optionsOptions, legs []string
 		return fmt.Errorf("API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	var preflightResp MultilegPreflightResponse
+	var preflightResp api.MultilegPreflightResponse
 	if err := json.NewDecoder(resp.Body).Decode(&preflightResp); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -630,7 +546,7 @@ func runMultilegPreflight(cmd *cobra.Command, opts optionsOptions, legs []string
 }
 
 // sumMultilegFees calculates the total regulatory fees for multi-leg orders.
-func sumMultilegFees(fees MultilegRegulatoryFees) string {
+func sumMultilegFees(fees api.MultilegRegulatoryFees) string {
 	var total float64
 	for _, feeStr := range []string{fees.SECFee, fees.TAFFee, fees.ORFFee, fees.ExchangeFee, fees.OCCFee, fees.CATFee} {
 		if feeStr == "" {
@@ -890,7 +806,7 @@ func extractOptionsErrorMessage(err error) string {
 
 func runMultilegOrder(cmd *cobra.Command, opts optionsOptions, legs []string, limitPrice, quantity, expiration string, skipConfirm bool) error {
 	// Parse legs
-	var parsedLegs []MultilegLeg
+	var parsedLegs []api.MultilegLeg
 	for _, legStr := range legs {
 		leg, err := parseLeg(legStr)
 		if err != nil {
@@ -919,9 +835,9 @@ func runMultilegOrder(cmd *cobra.Command, opts optionsOptions, legs []string, li
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	preflightReq := MultilegPreflightRequest{
+	preflightReq := api.MultilegPreflightRequest{
 		OrderType: "LIMIT",
-		Expiration: MultilegExpiration{
+		Expiration: api.MultilegExpiration{
 			TimeInForce: exp,
 		},
 		Quantity:   quantity,
@@ -942,7 +858,7 @@ func runMultilegOrder(cmd *cobra.Command, opts optionsOptions, legs []string, li
 	}
 	defer func() { _ = preflightResp.Body.Close() }()
 
-	var preflight MultilegPreflightResponse
+	var preflight api.MultilegPreflightResponse
 	if preflightResp.StatusCode == 200 {
 		if err := json.NewDecoder(preflightResp.Body).Decode(&preflight); err != nil {
 			return fmt.Errorf("failed to decode preflight response: %w", err)
@@ -994,10 +910,10 @@ func runMultilegOrder(cmd *cobra.Command, opts optionsOptions, legs []string, li
 	orderCtx, orderCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer orderCancel()
 
-	orderReq := MultilegOrderRequest{
+	orderReq := api.MultilegOrderRequest{
 		OrderID:   orderID,
 		OrderType: "LIMIT",
-		Expiration: MultilegExpiration{
+		Expiration: api.MultilegExpiration{
 			TimeInForce: exp,
 		},
 		Quantity:   quantity,
@@ -1022,7 +938,7 @@ func runMultilegOrder(cmd *cobra.Command, opts optionsOptions, legs []string, li
 		return fmt.Errorf("API error: %d - %s", orderResp.StatusCode, string(respBody))
 	}
 
-	var orderResult MultilegOrderResponse
+	var orderResult api.MultilegOrderResponse
 	if err := json.NewDecoder(orderResp.Body).Decode(&orderResult); err != nil {
 		return fmt.Errorf("failed to decode order response: %w", err)
 	}
