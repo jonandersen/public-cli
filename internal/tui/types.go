@@ -1,44 +1,44 @@
 package tui
 
-import "github.com/jonandersen/public-cli/internal/api"
+import "github.com/jonandersen/public-cli/pkg/publicapi"
 
 // Type aliases for API models - allows TUI code to use short names
-// while the actual types are defined in internal/api/models.go
+// while the actual types are defined in pkg/publicapi/types.go
 
 // Portfolio types
 type (
-	Portfolio   = api.Portfolio
-	BuyingPower = api.BuyingPower
-	Equity      = api.Equity
-	Position    = api.Position
-	Instrument  = api.Instrument
-	Price       = api.Price
-	Gain        = api.Gain
-	CostBasis   = api.CostBasis
+	Portfolio   = publicapi.Portfolio
+	BuyingPower = publicapi.BuyingPower
+	Equity      = publicapi.Equity
+	Position    = publicapi.Position
+	Instrument  = publicapi.Instrument
+	Price       = publicapi.Price
+	Gain        = publicapi.Gain
+	CostBasis   = publicapi.CostBasis
 )
 
 // Quote types
 type (
-	QuoteRequest    = api.QuoteRequest
-	QuoteInstrument = api.QuoteInstrument
-	QuotesResponse  = api.QuotesResponse
-	Quote           = api.Quote
+	QuoteRequest    = publicapi.QuoteRequest
+	QuoteInstrument = publicapi.QuoteInstrument
+	QuotesResponse  = publicapi.QuotesResponse
+	Quote           = publicapi.Quote
 )
 
 // Order types
 type (
-	Order          = api.Order
-	OrdersResponse = api.OrdersResponse
+	Order          = publicapi.Order
+	OrdersResponse = publicapi.OrdersResponse
 )
 
 // Account types
 type (
-	Account          = api.Account
-	AccountsResponse = api.AccountsResponse
+	Account          = publicapi.Account
+	AccountsResponse = publicapi.AccountsResponse
 )
 
 // History types
 type (
-	Transaction     = api.Transaction
-	HistoryResponse = api.HistoryResponse
+	Transaction     = publicapi.Transaction
+	HistoryResponse = publicapi.HistoryResponse
 )
